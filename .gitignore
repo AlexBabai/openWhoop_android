@@ -10,3 +10,4 @@
 .cxx/
 local.properties
 devin_setup_plan.md
+/rust/**/target/
