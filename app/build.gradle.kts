@@ -5,6 +5,7 @@ plugins {
 }
 
 import org.gradle.internal.os.OperatingSystem
+import java.util.Properties
 
 android {
     namespace = "dev.openwhoop.android"
@@ -58,11 +59,22 @@ val androidTargets = mapOf(
 )
 
 fun androidLinker(target: String): String {
+    val localPropertiesSdkDir = providers.provider {
+        val localProperties = rootProject.file("local.properties")
+        if (!localProperties.isFile) {
+            null
+        } else {
+            Properties().apply {
+                localProperties.inputStream().use(::load)
+            }.getProperty("sdk.dir")
+        }
+    }
     val ndkHome = providers
         .environmentVariable("ANDROID_NDK_HOME")
         .orElse(providers.environmentVariable("ANDROID_NDK_ROOT"))
         .orElse(providers.environmentVariable("ANDROID_HOME").map { "$it/ndk/27.0.12077973" })
         .orElse(providers.environmentVariable("ANDROID_SDK_ROOT").map { "$it/ndk/27.0.12077973" })
+        .orElse(localPropertiesSdkDir.map { "$it/ndk/27.0.12077973" })
         .get()
     val hostTag = when {
         OperatingSystem.current().isLinux -> "linux-x86_64"
