@@ -84,11 +84,13 @@ fun androidLinker(target: String): String {
 val buildRustAlgos = tasks.register("buildRustAlgos") {
     group = "build"
     description = "Builds the Rust openwhoop-algos JNI library for Android ABIs."
+    inputs.dir(rustCrateDir.dir("src"))
+    inputs.file(rustCrateDir.file("Cargo.toml"))
+    inputs.file(rustCrateDir.file("Cargo.lock"))
 
     androidTargets.forEach { (abi, target) ->
         val outputDir = layout.buildDirectory.dir("generated/rustJniLibs/$abi")
         outputs.file(outputDir.map { it.file("libopenwhoop_android_algos.so") })
-        inputs.dir(rustCrateDir)
         doLast {
             exec {
                 workingDir = rustCrateDir.asFile

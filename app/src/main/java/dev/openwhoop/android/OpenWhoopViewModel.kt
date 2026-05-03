@@ -143,13 +143,13 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun addSample(sample: WhoopProtocol.HeartRateSample) {
+        val samples = (_uiState.value.samples + sample)
+            .distinctBy { it.time }
+            .sortedByDescending { it.time }
+            .take(500)
+        val algorithmStats = runCatching { WhoopAlgosNative.calculate(samples) }
+            .getOrElse { AlgorithmStats() }
         _uiState.update { state ->
-            val samples = (state.samples + sample)
-                .distinctBy { it.time }
-                .sortedByDescending { it.time }
-                .take(500)
-            val algorithmStats = runCatching { WhoopAlgosNative.calculate(samples) }
-                .getOrElse { AlgorithmStats() }
             state.copy(
                 samples = samples,
                 latestBpm = sample.bpm,
