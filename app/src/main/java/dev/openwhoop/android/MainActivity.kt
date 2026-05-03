@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Sync
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.openwhoop.android.algos.AlgorithmStats
 import dev.openwhoop.android.ble.WhoopProtocol
 import dev.openwhoop.android.ble.WhoopScanResult
 import dev.openwhoop.android.ui.theme.OpenWhoopTheme
@@ -144,6 +146,9 @@ private fun OpenWhoopApp(
                 )
             }
             item {
+                AlgorithmStatsCard(state.algorithmStats)
+            }
+            item {
                 SamplesCard(state.samples)
             }
         }
@@ -165,6 +170,28 @@ private fun OpenWhoopTopBar() {
             }
         },
     )
+}
+
+@Composable
+private fun AlgorithmStatsCard(stats: AlgorithmStats) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SectionTitle(Icons.Rounded.Insights, "Rust algorithm stats")
+            Text("Computed through the native openwhoop-algos JNI bridge from synced HR samples.")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Metric("Avg HR", stats.averageHr.formatNumber("bpm"))
+                Metric("Min HR", stats.minHr.formatNumber("bpm"))
+                Metric("Max HR", stats.maxHr.formatNumber("bpm"))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Metric("Stress", stats.stress.formatNumber())
+                Metric("Strain", stats.strain.formatNumber())
+            }
+        }
+    }
 }
 
 @Composable
@@ -390,3 +417,9 @@ private fun java.time.Instant.formatLocalTime(): String =
     DateTimeFormatter.ofPattern("HH:mm:ss")
         .withZone(ZoneId.systemDefault())
         .format(this)
+
+private fun Double?.formatNumber(suffix: String = ""): String =
+    this?.let {
+        val formatted = "%.1f".format(it)
+        if (suffix.isBlank()) formatted else "$formatted $suffix"
+    } ?: "--"

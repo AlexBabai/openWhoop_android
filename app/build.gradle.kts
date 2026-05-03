@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import org.gradle.internal.os.OperatingSystem
+
 android {
     namespace = "dev.openwhoop.android"
     compileSdk = 35
@@ -38,6 +40,74 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir(layout.buildDirectory.dir("generated/rustJniLibs"))
+        }
+    }
+}
+
+val rustCrateDir = layout.projectDirectory.dir("../rust/openwhoop-android-algos")
+val cargoProfile = "release"
+val androidTargets = mapOf(
+    "arm64-v8a" to "aarch64-linux-android",
+    "armeabi-v7a" to "armv7-linux-androideabi",
+    "x86" to "i686-linux-android",
+    "x86_64" to "x86_64-linux-android",
+)
+
+fun androidLinker(target: String): String {
+    val ndkHome = providers
+        .environmentVariable("ANDROID_NDK_HOME")
+        .orElse(providers.environmentVariable("ANDROID_NDK_ROOT"))
+        .orElse(providers.environmentVariable("ANDROID_HOME").map { "$it/ndk/27.0.12077973" })
+        .orElse(providers.environmentVariable("ANDROID_SDK_ROOT").map { "$it/ndk/27.0.12077973" })
+        .get()
+    val hostTag = when {
+        OperatingSystem.current().isLinux -> "linux-x86_64"
+        OperatingSystem.current().isMacOsX -> "darwin-x86_64"
+        OperatingSystem.current().isWindows -> "windows-x86_64"
+        else -> error("Unsupported host OS for Android NDK")
+    }
+    val toolchain = "$ndkHome/toolchains/llvm/prebuilt/$hostTag/bin"
+    val executable = when (target) {
+        "aarch64-linux-android" -> "aarch64-linux-android35-clang"
+        "armv7-linux-androideabi" -> "armv7a-linux-androideabi35-clang"
+        "i686-linux-android" -> "i686-linux-android35-clang"
+        "x86_64-linux-android" -> "x86_64-linux-android35-clang"
+        else -> error("Unsupported Android Rust target: $target")
+    }
+    return "$toolchain/$executable"
+}
+
+val buildRustAlgos = tasks.register("buildRustAlgos") {
+    group = "build"
+    description = "Builds the Rust openwhoop-algos JNI library for Android ABIs."
+    inputs.dir(rustCrateDir.dir("src"))
+    inputs.file(rustCrateDir.file("Cargo.toml"))
+    inputs.file(rustCrateDir.file("Cargo.lock"))
+
+    androidTargets.forEach { (abi, target) ->
+        val outputDir = layout.buildDirectory.dir("generated/rustJniLibs/$abi")
+        outputs.file(outputDir.map { it.file("libopenwhoop_android_algos.so") })
+        doLast {
+            exec {
+                workingDir = rustCrateDir.asFile
+                environment("CC_${target.replace('-', '_')}", androidLinker(target))
+                environment("CARGO_TARGET_${target.uppercase().replace('-', '_')}_LINKER", androidLinker(target))
+                commandLine("cargo", "build", "--target", target, "--profile", cargoProfile)
+            }
+            copy {
+                from(rustCrateDir.file("target/$target/$cargoProfile/libopenwhoop_android_algos.so"))
+                into(outputDir.get())
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildRustAlgos)
 }
 
 dependencies {

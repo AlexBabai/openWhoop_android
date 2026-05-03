@@ -4,6 +4,8 @@ import android.app.Application
 import android.bluetooth.BluetoothDevice
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.openwhoop.android.algos.AlgorithmStats
+import dev.openwhoop.android.algos.WhoopAlgosNative
 import dev.openwhoop.android.ble.WhoopBleClient
 import dev.openwhoop.android.ble.WhoopBleEvent
 import dev.openwhoop.android.ble.WhoopProtocol
@@ -141,14 +143,17 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun addSample(sample: WhoopProtocol.HeartRateSample) {
+        val samples = (_uiState.value.samples + sample)
+            .distinctBy { it.time }
+            .sortedByDescending { it.time }
+            .take(500)
+        val algorithmStats = runCatching { WhoopAlgosNative.calculate(samples) }
+            .getOrElse { AlgorithmStats() }
         _uiState.update { state ->
-            val samples = (state.samples + sample)
-                .distinctBy { it.time }
-                .sortedByDescending { it.time }
-                .take(500)
             state.copy(
                 samples = samples,
                 latestBpm = sample.bpm,
+                algorithmStats = algorithmStats,
                 status = "Received ${sample.source.name.lowercase()} HR: ${sample.bpm} bpm",
             )
         }
@@ -166,6 +171,7 @@ data class OpenWhoopUiState(
     val devices: List<WhoopScanResult> = emptyList(),
     val latestBpm: Long? = null,
     val samples: List<WhoopProtocol.HeartRateSample> = emptyList(),
+    val algorithmStats: AlgorithmStats = AlgorithmStats(),
     val syncedToHealthConnect: Int = 0,
     val status: String = "Ready",
 )
