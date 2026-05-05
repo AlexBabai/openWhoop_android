@@ -39,13 +39,9 @@ jobs:
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
 
       - name: Run lint and unit tests
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: ./gradlew lintDebug testDebugUnitTest
 
       - name: Build debug APK
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: ./gradlew assembleDebug
 
       - name: Rename APK
