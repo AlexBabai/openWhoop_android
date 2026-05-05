@@ -3,10 +3,10 @@ package dev.openwhoop.android.ble
 class WhoopFrameDecoder {
     private var pending = ByteArray(0)
 
-    fun decode(bytes: ByteArray): WhoopProtocol.Packet? {
+    fun decode(bytes: ByteArray): DecodedWhoopData? {
         val candidate = if (pending.isEmpty()) bytes else pending + bytes
-        val length = WhoopProtocol.frameLength(candidate)
-        if (length == null) {
+        val length = WhoopCodecNative.frameLength(candidate)
+        if (length <= 0) {
             pending = ByteArray(0)
             return null
         }
@@ -15,9 +15,7 @@ class WhoopFrameDecoder {
             return null
         }
         pending = ByteArray(0)
-        return runCatching {
-            WhoopProtocol.parseFrame(candidate.copyOfRange(0, length))
-        }.getOrNull()
+        return WhoopCodecNative.decode(candidate.copyOfRange(0, length))
     }
 
     fun reset() {
