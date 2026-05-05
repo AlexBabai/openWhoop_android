@@ -9,5 +9,5 @@ crate-type = ["cdylib"]
 [dependencies]
 chrono = "0.4.40"
 jni = "0.21.1"
-openwhoop-algos = { git = "https://github.com/AlexBabai/openwhoop.git" }
-openwhoop-codec = { git = "https://github.com/AlexBabai/openwhoop.git" }
+openwhoop-algos = { path = "../../third_party/openwhoop/src/openwhoop-algos" }
+openwhoop-codec = { path = "../../third_party/openwhoop/src/openwhoop-codec" }

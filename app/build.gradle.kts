@@ -50,6 +50,7 @@ android {
 }
 
 val rustCrateDir = layout.projectDirectory.dir("../rust/openwhoop-android-algos")
+val openwhoopSubmoduleDir = layout.projectDirectory.dir("../third_party/openwhoop")
 val cargoProfile = "release"
 val androidTargets = mapOf(
     "arm64-v8a" to "aarch64-linux-android",
@@ -97,8 +98,15 @@ val buildRustAlgos = tasks.register("buildRustAlgos") {
     group = "build"
     description = "Builds the Rust openwhoop-algos JNI library for Android ABIs."
     inputs.dir(rustCrateDir.dir("src"))
+    inputs.dir(openwhoopSubmoduleDir.dir("src/openwhoop-algos/src"))
+    inputs.dir(openwhoopSubmoduleDir.dir("src/openwhoop-codec/src"))
+    inputs.dir(openwhoopSubmoduleDir.dir("src/openwhoop-types/src"))
     inputs.file(rustCrateDir.file("Cargo.toml"))
     inputs.file(rustCrateDir.file("Cargo.lock"))
+    inputs.file(openwhoopSubmoduleDir.file("Cargo.toml"))
+    inputs.file(openwhoopSubmoduleDir.file("src/openwhoop-algos/Cargo.toml"))
+    inputs.file(openwhoopSubmoduleDir.file("src/openwhoop-codec/Cargo.toml"))
+    inputs.file(openwhoopSubmoduleDir.file("src/openwhoop-types/Cargo.toml"))
 
     androidTargets.forEach { (abi, target) ->
         val outputDir = layout.buildDirectory.dir("generated/rustJniLibs/$abi")

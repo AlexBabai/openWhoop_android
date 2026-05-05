@@ -1,0 +1,3 @@
+[submodule "third_party/openwhoop"]
+	path = third_party/openwhoop
+	url = https://github.com/bWanShiTong/openwhoop.git
