@@ -58,7 +58,7 @@ object WhoopCodecNative {
     }
 
     private fun ByteArray.decodeHistoryMetadata(): DecodedWhoopData.HistoryMetadata? {
-        if (size < 19) return null
+        if (size < 18) return null
         return DecodedWhoopData.HistoryMetadata(
             metadataType = this[1].toInt() and 0xFF,
             timestampSeconds = readLongLe(2),
