@@ -111,21 +111,21 @@ class WhoopBleClient(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun startRealtimeHeartRate() {
-        write(WhoopProtocol.toggleRealtimeHr(nextSeq(), enabled = true))
+        write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = true))
     }
 
     @SuppressLint("MissingPermission")
     fun stopRealtimeHeartRate() {
-        write(WhoopProtocol.toggleRealtimeHr(nextSeq(), enabled = false))
+        write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = false))
     }
 
     @SuppressLint("MissingPermission")
     fun syncHistory() {
-        write(WhoopProtocol.helloHarvard(nextSeq()))
-        write(WhoopProtocol.setTime(nextSeq()))
-        write(WhoopProtocol.getName(nextSeq()))
-        write(WhoopProtocol.enterHighFreqSync(nextSeq()))
-        write(WhoopProtocol.historyStart(nextSeq()))
+        write(WhoopCodecNative.helloHarvard(nextSeq()))
+        write(WhoopCodecNative.setTime(nextSeq()))
+        write(WhoopCodecNative.getName(nextSeq()))
+        write(WhoopCodecNative.enterHighFreqSync(nextSeq()))
+        write(WhoopCodecNative.historyStart(nextSeq()))
         emit(WhoopBleEvent.HistorySyncStarted)
     }
 
@@ -140,7 +140,11 @@ class WhoopBleClient(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private fun write(bytes: ByteArray) {
+    private fun write(bytes: ByteArray?) {
+        if (bytes == null) {
+            emit(WhoopBleEvent.Error("WHOOP codec could not build command"))
+            return
+        }
         val characteristic = commandCharacteristic
         val bluetoothGatt = gatt
         if (characteristic == null || bluetoothGatt == null) {
@@ -248,18 +252,16 @@ class WhoopBleClient(private val context: Context) {
             return
         }
 
-        val packet = frameDecoder.decode(value) ?: return
-        if (WhoopProtocol.isCommandResponse(packet)) return
-
-        WhoopProtocol.parseHeartRate(packet)?.let {
-            emit(WhoopBleEvent.HeartRate(it))
-            return
-        }
-
-        val metadata = WhoopProtocol.parseHistoryMetadata(packet)
-        if (metadata != null && WhoopProtocol.isHistoryFinished(metadata)) {
-            write(WhoopProtocol.historyEnd(nextSeq(), metadata.endData))
-            emit(WhoopBleEvent.HistorySyncFinished)
+        when (val decoded = frameDecoder.decode(value)) {
+            is DecodedWhoopData.HeartRate -> emit(WhoopBleEvent.HeartRate(decoded.sample))
+            is DecodedWhoopData.HistoryMetadata -> {
+                if (WhoopProtocol.isHistoryFinished(decoded.metadataType)) {
+                    write(WhoopCodecNative.historyEnd(nextSeq(), decoded.endData))
+                    emit(WhoopBleEvent.HistorySyncFinished)
+                }
+            }
+            is DecodedWhoopData.CommandResponse -> Unit
+            null -> Unit
         }
     }
 
