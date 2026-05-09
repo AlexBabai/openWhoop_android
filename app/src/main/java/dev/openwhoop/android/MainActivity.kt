@@ -19,9 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.HealthAndSafety
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -86,7 +86,9 @@ class MainActivity : ComponentActivity() {
                     onStartRealtime = viewModel::startRealtimeHr,
                     onStopRealtime = viewModel::stopRealtimeHr,
                     onSyncHistory = viewModel::syncHistory,
-                    onWriteHealthConnect = viewModel::writeHeartRateToHealthConnect,
+                    onWriteHealthConnect = viewModel::writeMetricsToHealthConnect,
+                    onStartMonitor = viewModel::startBackgroundMonitor,
+                    onStopMonitor = viewModel::stopBackgroundMonitor,
                 )
             }
         }
@@ -105,6 +107,8 @@ private fun OpenWhoopApp(
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
     onWriteHealthConnect: () -> Unit,
+    onStartMonitor: () -> Unit,
+    onStopMonitor: () -> Unit,
 ) {
     Scaffold(
         topBar = { OpenWhoopTopBar() },
@@ -143,6 +147,8 @@ private fun OpenWhoopApp(
                     onStopRealtime = onStopRealtime,
                     onSyncHistory = onSyncHistory,
                     onWriteHealthConnect = onWriteHealthConnect,
+                    onStartMonitor = onStartMonitor,
+                    onStopMonitor = onStopMonitor,
                 )
             }
             item {
@@ -216,7 +222,12 @@ private fun StatusCard(state: OpenWhoopUiState) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("Connection", if (state.isReady) "Ready" else if (state.isConnected) "Connected" else "Idle")
                 Metric("Samples", state.samples.size.toString())
-                Metric("Health Connect", state.syncedToHealthConnect.toString())
+                Metric("HC records", state.syncedToHealthConnect.toString())
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Metric("Validated", state.validatedMetrics.toString())
+                Metric("Rejected", state.rejectedMetrics.toString())
+                Metric("Monitor", if (state.isBackgroundMonitoring) "On" else "Off")
             }
             if (state.isScanning || state.isSyncingHistory) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -241,8 +252,8 @@ private fun PermissionCard(
             Text(
                 "Health Connect: " + when {
                     !state.healthConnectAvailable -> "not available on this device"
-                    state.hasHealthConnectPermissions -> "write HR granted"
-                    else -> "write HR required"
+                    state.hasHealthConnectPermissions -> "write vitals granted"
+                    else -> "write vitals required"
                 },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -325,6 +336,8 @@ private fun SyncCard(
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
     onWriteHealthConnect: () -> Unit,
+    onStartMonitor: () -> Unit,
+    onStopMonitor: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -332,7 +345,21 @@ private fun SyncCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionTitle(Icons.Rounded.Sync, "Sync")
-            Text("Realtime HR uses WHOOP command 0x03. History sync sends the Gen 4 high-frequency sync sequence from openwhoop.")
+            Text("Background monitor keeps realtime HR active, periodically syncs history, validates low-movement worn samples, and writes HR, HRV, SpO2, respiratory rate, and skin temperature to Health Connect.")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onStartMonitor,
+                    enabled = state.isReady && state.hasHealthConnectPermissions && !state.isBackgroundMonitoring,
+                ) {
+                    Text("Start 24/7")
+                }
+                OutlinedButton(
+                    onClick = onStopMonitor,
+                    enabled = state.isBackgroundMonitoring,
+                ) {
+                    Text("Stop 24/7")
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onStartRealtime,
@@ -356,9 +383,9 @@ private fun SyncCard(
                 }
                 Button(
                     onClick = onWriteHealthConnect,
-                    enabled = state.hasHealthConnectPermissions && state.samples.isNotEmpty(),
+                    enabled = state.hasHealthConnectPermissions && (state.samples.isNotEmpty() || state.healthMetrics.isNotEmpty()),
                 ) {
-                    Text("Write Health Connect")
+                    Text("Write validated")
                 }
             }
         }

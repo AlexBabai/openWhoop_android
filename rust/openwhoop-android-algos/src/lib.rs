@@ -238,7 +238,7 @@ fn byte_array(env: &JNIEnv, bytes: &[u8]) -> jbyteArray {
 fn encode_data(env: &JNIEnv, data: WhoopData) -> jbyteArray {
     match data {
         WhoopData::RealtimeHr { unix, bpm } => encode_hr(env, 0, u64::from(unix), bpm),
-        WhoopData::HistoryReading(HistoryReading { unix, bpm, .. }) => encode_hr(env, 1, unix, bpm),
+        WhoopData::HistoryReading(reading) => encode_history_reading(env, reading),
         WhoopData::HistoryMetadata {
             unix,
             end_data,
@@ -268,6 +268,58 @@ fn encode_hr(env: &JNIEnv, source: u8, unix: u64, bpm: u8) -> jbyteArray {
     encoded.push(source);
     encoded.extend_from_slice(&unix.to_le_bytes());
     encoded.push(bpm);
+    byte_array(env, &encoded)
+}
+
+fn encode_history_reading(env: &JNIEnv, reading: HistoryReading) -> jbyteArray {
+    const MAX_RR: usize = 4;
+    let HistoryReading {
+        unix,
+        bpm,
+        rr,
+        imu_data,
+        sensor_data,
+    } = reading;
+    let mut encoded = Vec::with_capacity(54);
+    encoded.push(1);
+    encoded.push(1);
+    encoded.extend_from_slice(&unix.to_le_bytes());
+    encoded.push(bpm);
+    encoded.push(u8::try_from(rr.len().min(MAX_RR)).unwrap_or(0));
+    for value in rr.iter().take(MAX_RR) {
+        encoded.extend_from_slice(&value.to_le_bytes());
+    }
+    for _ in rr.len().min(MAX_RR)..MAX_RR {
+        encoded.extend_from_slice(&0_u16.to_le_bytes());
+    }
+    match sensor_data {
+        Some(sensor) => {
+            encoded.push(1);
+            encoded.extend_from_slice(&sensor.spo2_red.to_le_bytes());
+            encoded.extend_from_slice(&sensor.spo2_ir.to_le_bytes());
+            encoded.extend_from_slice(&sensor.skin_temp_raw.to_le_bytes());
+            encoded.extend_from_slice(&sensor.resp_rate_raw.to_le_bytes());
+            encoded.extend_from_slice(&sensor.signal_quality.to_le_bytes());
+            encoded.push(sensor.skin_contact);
+            for value in sensor.accel_gravity {
+                encoded.extend_from_slice(&value.to_le_bytes());
+            }
+            encoded.push(sensor.spo2_pct.unwrap_or(0));
+        }
+        None => {
+            encoded.push(0);
+            encoded.extend_from_slice(&[0; 25]);
+        }
+    }
+    if let Some(sample) = imu_data.first() {
+        encoded.push(1);
+        encoded.extend_from_slice(&sample.acc_x_g.to_le_bytes());
+        encoded.extend_from_slice(&sample.acc_y_g.to_le_bytes());
+        encoded.extend_from_slice(&sample.acc_z_g.to_le_bytes());
+    } else {
+        encoded.push(0);
+        encoded.extend_from_slice(&[0; 12]);
+    }
     byte_array(env, &encoded)
 }
 

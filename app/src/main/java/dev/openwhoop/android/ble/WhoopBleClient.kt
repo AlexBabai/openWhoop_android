@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import dev.openwhoop.android.ble.WhoopProtocol.HeartRateSample
+import dev.openwhoop.android.health.HealthMetricSample
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -117,6 +118,12 @@ class WhoopBleClient(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun stopRealtimeHeartRate() {
         write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = false))
+    }
+
+    fun maintainBackgroundConnection() {
+        if (commandCharacteristic != null) {
+            startRealtimeHeartRate()
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -253,7 +260,12 @@ class WhoopBleClient(private val context: Context) {
         }
 
         when (val decoded = frameDecoder.decode(value)) {
-            is DecodedWhoopData.HeartRate -> emit(WhoopBleEvent.HeartRate(decoded.sample))
+            is DecodedWhoopData.HeartRate -> emit(
+                WhoopBleEvent.HeartRate(
+                    sample = decoded.sample,
+                    healthMetrics = decoded.healthMetrics,
+                ),
+            )
             is DecodedWhoopData.HistoryMetadata -> {
                 if (WhoopProtocol.isHistoryFinished(decoded.metadataType)) {
                     write(WhoopCodecNative.historyEnd(nextSeq(), decoded.endData))
@@ -294,7 +306,10 @@ sealed interface WhoopBleEvent {
     data object Disconnected : WhoopBleEvent
     data object HistorySyncStarted : WhoopBleEvent
     data object HistorySyncFinished : WhoopBleEvent
-    data class HeartRate(val sample: HeartRateSample) : WhoopBleEvent
+    data class HeartRate(
+        val sample: HeartRateSample,
+        val healthMetrics: HealthMetricSample? = null,
+    ) : WhoopBleEvent
     data class Error(val message: String) : WhoopBleEvent
 }
 
