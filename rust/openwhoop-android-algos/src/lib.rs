@@ -74,6 +74,55 @@ pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleRea
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleR7DataCollection(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_r7_data_collection().with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleImuMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_imu_mode(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleHistoricalImuMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_imu_mode_historical(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_enableOpticalData(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::enable_optical_data(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleOpticalMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_optical_mode(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_helloHarvard(
     env: JNIEnv,
     _class: jni::objects::JClass,

@@ -10,8 +10,10 @@ import dev.openwhoop.android.ble.WhoopBleClient
 import dev.openwhoop.android.ble.WhoopBleEvent
 import dev.openwhoop.android.ble.WhoopProtocol
 import dev.openwhoop.android.ble.WhoopScanResult
+import dev.openwhoop.android.health.EnabledHealthMetrics
 import dev.openwhoop.android.health.HealthConnectVitalsWriter
 import dev.openwhoop.android.health.HealthMetricSample
+import dev.openwhoop.android.health.HealthMetricType
 import dev.openwhoop.android.monitor.WhoopBackgroundMonitor
 import dev.openwhoop.android.monitor.WhoopMonitorService
 import kotlinx.coroutines.Job
@@ -28,6 +30,7 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
         bleClient = bleClient,
         healthConnect = healthConnect,
         scope = viewModelScope,
+        enabledMetrics = { _uiState.value.enabledHealthMetrics },
         onStatus = { status -> _uiState.update { it.copy(status = status) } },
         onSyncResult = { result ->
             _uiState.update {
@@ -108,30 +111,9 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
         bleClient.syncHistory()
     }
 
-    fun writeMetricsToHealthConnect() {
-        viewModelScope.launch {
-            runCatching {
-                val metrics = _uiState.value.healthMetrics.takeIf { it.isNotEmpty() }
-                    ?: _uiState.value.samples.map {
-                        HealthMetricSample(
-                            time = it.time,
-                            heartRateBpm = it.bpm,
-                            source = it.source,
-                            worn = true,
-                        )
-                    }
-                val result = healthConnect.write(metrics)
-                _uiState.update {
-                    it.copy(
-                        syncedToHealthConnect = it.syncedToHealthConnect + result.insertedRecords,
-                        validatedMetrics = result.validated.totalRecords,
-                        rejectedMetrics = it.rejectedMetrics + result.validated.rejectedSamples,
-                        status = "Wrote ${result.insertedRecords} validated Health Connect record(s)",
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { it.copy(status = "Health Connect write failed: ${error.message}") }
-            }
+    fun setMetricEnabled(metric: HealthMetricType, enabled: Boolean) {
+        _uiState.update { state ->
+            state.copy(enabledHealthMetrics = state.enabledHealthMetrics.withMetric(metric, enabled))
         }
     }
 
@@ -177,6 +159,11 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     WhoopBleEvent.HistorySyncFinished -> {
                         _uiState.update { it.copy(isSyncingHistory = false, status = "History sync finished") }
+                        if (_uiState.value.isBackgroundMonitoring) {
+                            viewModelScope.launch {
+                                backgroundMonitor.flush(_uiState.value.enabledHealthMetrics)
+                            }
+                        }
                     }
                     is WhoopBleEvent.HeartRate -> addSample(event.sample, event.healthMetrics)
                     is WhoopBleEvent.Error -> {
@@ -230,5 +217,6 @@ data class OpenWhoopUiState(
     val syncedToHealthConnect: Int = 0,
     val validatedMetrics: Int = 0,
     val rejectedMetrics: Int = 0,
+    val enabledHealthMetrics: EnabledHealthMetrics = EnabledHealthMetrics(),
     val status: String = "Ready",
 )

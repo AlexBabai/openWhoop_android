@@ -120,9 +120,29 @@ class WhoopBleClient(private val context: Context) {
         write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = false))
     }
 
+    @SuppressLint("MissingPermission")
+    fun startHealthMonitoring() {
+        write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = true))
+        write(WhoopCodecNative.enableOpticalData(nextSeq(), enabled = true))
+        write(WhoopCodecNative.toggleOpticalMode(nextSeq(), enabled = true))
+        write(WhoopCodecNative.toggleImuMode(nextSeq(), enabled = true))
+        write(WhoopCodecNative.toggleHistoricalImuMode(nextSeq(), enabled = true))
+        write(WhoopCodecNative.toggleR7DataCollection(nextSeq()))
+        syncHistory()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun stopHealthMonitoring() {
+        write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = false))
+        write(WhoopCodecNative.enableOpticalData(nextSeq(), enabled = false))
+        write(WhoopCodecNative.toggleOpticalMode(nextSeq(), enabled = false))
+        write(WhoopCodecNative.toggleImuMode(nextSeq(), enabled = false))
+        write(WhoopCodecNative.toggleHistoricalImuMode(nextSeq(), enabled = false))
+    }
+
     fun maintainBackgroundConnection() {
         if (commandCharacteristic != null) {
-            startRealtimeHeartRate()
+            startHealthMonitoring()
         }
     }
 

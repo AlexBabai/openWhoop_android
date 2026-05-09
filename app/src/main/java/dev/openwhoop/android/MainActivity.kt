@@ -32,6 +32,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import dev.openwhoop.android.algos.AlgorithmStats
 import dev.openwhoop.android.ble.WhoopProtocol
 import dev.openwhoop.android.ble.WhoopScanResult
+import dev.openwhoop.android.health.HealthMetricType
 import dev.openwhoop.android.ui.theme.OpenWhoopTheme
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -86,9 +88,9 @@ class MainActivity : ComponentActivity() {
                     onStartRealtime = viewModel::startRealtimeHr,
                     onStopRealtime = viewModel::stopRealtimeHr,
                     onSyncHistory = viewModel::syncHistory,
-                    onWriteHealthConnect = viewModel::writeMetricsToHealthConnect,
                     onStartMonitor = viewModel::startBackgroundMonitor,
                     onStopMonitor = viewModel::stopBackgroundMonitor,
+                    onMetricEnabledChange = viewModel::setMetricEnabled,
                 )
             }
         }
@@ -106,9 +108,9 @@ private fun OpenWhoopApp(
     onStartRealtime: () -> Unit,
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
-    onWriteHealthConnect: () -> Unit,
     onStartMonitor: () -> Unit,
     onStopMonitor: () -> Unit,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Scaffold(
         topBar = { OpenWhoopTopBar() },
@@ -146,9 +148,9 @@ private fun OpenWhoopApp(
                     onStartRealtime = onStartRealtime,
                     onStopRealtime = onStopRealtime,
                     onSyncHistory = onSyncHistory,
-                    onWriteHealthConnect = onWriteHealthConnect,
                     onStartMonitor = onStartMonitor,
                     onStopMonitor = onStopMonitor,
+                    onMetricEnabledChange = onMetricEnabledChange,
                 )
             }
             item {
@@ -335,9 +337,9 @@ private fun SyncCard(
     onStartRealtime: () -> Unit,
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
-    onWriteHealthConnect: () -> Unit,
     onStartMonitor: () -> Unit,
     onStopMonitor: () -> Unit,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -345,7 +347,9 @@ private fun SyncCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionTitle(Icons.Rounded.Sync, "Sync")
-            Text("Background monitor keeps realtime HR active, periodically syncs history, validates low-movement worn samples, and writes HR, HRV, SpO2, respiratory rate, and skin temperature to Health Connect.")
+            Text("Background monitor enables optical/IMU collection, syncs history automatically, validates low-movement worn samples, and writes selected metrics to Health Connect.")
+            Text("Health Connect write permissions used: ${HealthMetricType.entries.joinToString { it.permissionPurpose.substringAfterLast('.') }}.")
+            HealthMetricToggles(state, onMetricEnabledChange)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onStartMonitor,
@@ -381,12 +385,35 @@ private fun SyncCard(
                 ) {
                     Text("Sync history")
                 }
-                Button(
-                    onClick = onWriteHealthConnect,
-                    enabled = state.hasHealthConnectPermissions && (state.samples.isNotEmpty() || state.healthMetrics.isNotEmpty()),
-                ) {
-                    Text("Write validated")
-                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthMetricToggles(
+    state: OpenWhoopUiState,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        HealthMetricType.entries.forEach { metric ->
+            val checked = when (metric) {
+                HealthMetricType.HeartRate -> state.enabledHealthMetrics.heartRate
+                HealthMetricType.Hrv -> state.enabledHealthMetrics.hrv
+                HealthMetricType.Spo2 -> state.enabledHealthMetrics.spo2
+                HealthMetricType.RespiratoryRate -> state.enabledHealthMetrics.respiratoryRate
+                HealthMetricType.SkinTemperature -> state.enabledHealthMetrics.skinTemperature
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(metric.label)
+                Switch(
+                    checked = checked,
+                    onCheckedChange = { onMetricEnabledChange(metric, it) },
+                )
             }
         }
     }

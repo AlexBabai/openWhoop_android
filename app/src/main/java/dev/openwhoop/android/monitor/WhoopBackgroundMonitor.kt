@@ -2,6 +2,7 @@ package dev.openwhoop.android.monitor
 
 import dev.openwhoop.android.ble.WhoopBleClient
 import dev.openwhoop.android.ble.WhoopBleEvent
+import dev.openwhoop.android.health.EnabledHealthMetrics
 import dev.openwhoop.android.health.HealthConnectSyncResult
 import dev.openwhoop.android.health.HealthConnectVitalsWriter
 import dev.openwhoop.android.health.HealthMetricSample
@@ -15,6 +16,7 @@ class WhoopBackgroundMonitor(
     private val bleClient: WhoopBleClient,
     private val healthConnect: HealthConnectVitalsWriter,
     private val scope: CoroutineScope,
+    private val enabledMetrics: () -> EnabledHealthMetrics,
     private val onStatus: (String) -> Unit,
     private val onSyncResult: (HealthConnectSyncResult) -> Unit,
 ) {
@@ -25,7 +27,7 @@ class WhoopBackgroundMonitor(
     fun start() {
         if (observeJob?.isActive == true) return
         onStatus("24/7 monitor started")
-        bleClient.startRealtimeHeartRate()
+        bleClient.startHealthMonitoring()
         observeJob = scope.launch {
             bleClient.events.collect { event ->
                 when (event) {
@@ -38,7 +40,7 @@ class WhoopBackgroundMonitor(
         syncJob = scope.launch {
             while (true) {
                 delay(SyncInterval)
-                flush()
+                flush(enabledMetrics())
             }
         }
     }
@@ -48,17 +50,17 @@ class WhoopBackgroundMonitor(
         syncJob?.cancel()
         observeJob = null
         syncJob = null
-        bleClient.stopRealtimeHeartRate()
+        bleClient.stopHealthMonitoring()
         onStatus("24/7 monitor stopped")
     }
 
-    suspend fun flush() {
+    suspend fun flush(enabledMetrics: EnabledHealthMetrics = EnabledHealthMetrics()) {
         val snapshot = synchronized(bufferedMetrics) {
             bufferedMetrics.toList().also { bufferedMetrics.clear() }
         }
         if (snapshot.isEmpty()) return
         runCatching {
-            healthConnect.write(snapshot)
+            healthConnect.write(snapshot, enabledMetrics)
         }.onSuccess { result ->
             onSyncResult(result)
             onStatus(

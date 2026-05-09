@@ -50,10 +50,13 @@ class HealthConnectVitalsWriter(private val context: Context) {
             ?.getGrantedPermissions()
             ?.containsAll(permissions) == true
 
-    suspend fun write(samples: List<HealthMetricSample>): HealthConnectSyncResult {
+    suspend fun write(
+        samples: List<HealthMetricSample>,
+        enabledMetrics: EnabledHealthMetrics = EnabledHealthMetrics(),
+    ): HealthConnectSyncResult {
         val healthConnectClient = requireNotNull(client) { "Health Connect is not available" }
         val validated = validator.validate(samples)
-        val records = buildRecords(healthConnectClient, validated)
+        val records = buildRecords(healthConnectClient, validated, enabledMetrics)
         if (records.isNotEmpty()) {
             healthConnectClient.insertRecords(records)
         }
@@ -66,34 +69,43 @@ class HealthConnectVitalsWriter(private val context: Context) {
     private fun buildRecords(
         healthConnectClient: HealthConnectClient,
         validated: ValidatedHealthMetrics,
+        enabledMetrics: EnabledHealthMetrics,
     ): List<Record> {
         val records = mutableListOf<Record>()
-        records += heartRateRecord(validated)
-        records += validated.hrvRmssd.map { sample ->
-            HeartRateVariabilityRmssdRecord(
-                time = sample.time,
-                zoneOffset = ZoneOffset.UTC,
-                heartRateVariabilityMillis = sample.value,
-                metadata = whoopMetadata("hrv-${sample.time.epochSecond}"),
-            )
+        if (enabledMetrics.heartRate) {
+            records += heartRateRecord(validated)
         }
-        records += validated.spo2.map { sample ->
-            OxygenSaturationRecord(
-                time = sample.time,
-                zoneOffset = ZoneOffset.UTC,
-                percentage = Percentage(sample.value),
-                metadata = whoopMetadata("spo2-${sample.time.epochSecond}"),
-            )
+        if (enabledMetrics.hrv) {
+            records += validated.hrvRmssd.map { sample ->
+                HeartRateVariabilityRmssdRecord(
+                    time = sample.time,
+                    zoneOffset = ZoneOffset.UTC,
+                    heartRateVariabilityMillis = sample.value,
+                    metadata = whoopMetadata("hrv-${sample.time.epochSecond}"),
+                )
+            }
         }
-        records += validated.respiratoryRate.map { sample ->
-            RespiratoryRateRecord(
-                time = sample.time,
-                zoneOffset = ZoneOffset.UTC,
-                rate = sample.value,
-                metadata = whoopMetadata("respiratory-${sample.time.epochSecond}"),
-            )
+        if (enabledMetrics.spo2) {
+            records += validated.spo2.map { sample ->
+                OxygenSaturationRecord(
+                    time = sample.time,
+                    zoneOffset = ZoneOffset.UTC,
+                    percentage = Percentage(sample.value),
+                    metadata = whoopMetadata("spo2-${sample.time.epochSecond}"),
+                )
+            }
         }
-        if (hasSkinTemperatureFeature(healthConnectClient)) {
+        if (enabledMetrics.respiratoryRate) {
+            records += validated.respiratoryRate.map { sample ->
+                RespiratoryRateRecord(
+                    time = sample.time,
+                    zoneOffset = ZoneOffset.UTC,
+                    rate = sample.value,
+                    metadata = whoopMetadata("respiratory-${sample.time.epochSecond}"),
+                )
+            }
+        }
+        if (enabledMetrics.skinTemperature && hasSkinTemperatureFeature(healthConnectClient)) {
             skinTemperatureRecord(validated)?.let { records += it }
         }
         return records

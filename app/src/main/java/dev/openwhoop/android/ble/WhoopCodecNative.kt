@@ -17,6 +17,11 @@ object WhoopCodecNative {
     }
 
     external fun toggleRealtimeHr(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleR7DataCollection(sequence: Int): ByteArray?
+    external fun toggleImuMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleHistoricalImuMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun enableOpticalData(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleOpticalMode(sequence: Int, enabled: Boolean): ByteArray?
     external fun helloHarvard(sequence: Int): ByteArray?
     external fun setTime(sequence: Int): ByteArray?
     external fun getName(sequence: Int): ByteArray?
