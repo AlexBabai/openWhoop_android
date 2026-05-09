@@ -19,9 +19,22 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("testkey") {
+            storeFile = file("testkey.jks")
+            storePassword = "openwhoop"
+            keyAlias = "openwhoop-test"
+            keyPassword = "openwhoop"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("testkey")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("testkey")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

@@ -7,8 +7,12 @@ class HealthMetricValidator {
             .sortedBy { it.time }
         val worn = sorted.filter(::isWorn)
         val lowMovement = worn.filter(::isLowMovement)
-        val heartRate = sorted
-            .filter { isWorn(it) }
+        val heartRateSamples = worn.ifEmpty {
+            sorted.filter {
+                it.heartRateBpm?.let { bpm -> bpm in HealthMetricSample.MinHeartRate..HealthMetricSample.MaxHeartRate } == true
+            }
+        }
+        val heartRate = heartRateSamples
             .mapNotNull { it.toHeartRateSample() }
         val hrv = lowMovement.mapNotNull { sample ->
             HealthMetricSample.rmssd(sample.rrIntervalsMillis)?.let { TimedDouble(sample.time, it) }
@@ -25,10 +29,15 @@ class HealthMetricValidator {
             spo2 = calculateSpo2(lowMovement),
             respiratoryRate = respiratoryRate,
             skinTemperatureCelsius = skinTemperature,
-            acceptedSamples = lowMovement.size,
-            rejectedSamples = sorted.size - lowMovement.size,
+            acceptedSamples = acceptedSamples(heartRateSamples, lowMovement),
+            rejectedSamples = sorted.size - acceptedSamples(heartRateSamples, lowMovement),
         )
     }
+
+    private fun acceptedSamples(
+        heartRateSamples: List<HealthMetricSample>,
+        lowMovement: List<HealthMetricSample>,
+    ): Int = (heartRateSamples + lowMovement).distinctBy { it.time }.size
 
     private fun isWorn(sample: HealthMetricSample): Boolean =
         sample.worn != false &&

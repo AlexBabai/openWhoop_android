@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     onSyncHistory = viewModel::syncHistory,
                     onStartMonitor = viewModel::startBackgroundMonitor,
                     onStopMonitor = viewModel::stopBackgroundMonitor,
+                    onManualSync = viewModel::manualSyncHealthConnect,
                     onMetricEnabledChange = viewModel::setMetricEnabled,
                 )
             }
@@ -110,6 +111,7 @@ private fun OpenWhoopApp(
     onSyncHistory: () -> Unit,
     onStartMonitor: () -> Unit,
     onStopMonitor: () -> Unit,
+    onManualSync: () -> Unit,
     onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Scaffold(
@@ -150,6 +152,7 @@ private fun OpenWhoopApp(
                     onSyncHistory = onSyncHistory,
                     onStartMonitor = onStartMonitor,
                     onStopMonitor = onStopMonitor,
+                    onManualSync = onManualSync,
                     onMetricEnabledChange = onMetricEnabledChange,
                 )
             }
@@ -229,6 +232,7 @@ private fun StatusCard(state: OpenWhoopUiState) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("Validated", state.validatedMetrics.toString())
                 Metric("Rejected", state.rejectedMetrics.toString())
+                Metric("Pending", state.pendingHealthConnectSamples.toString())
                 Metric("Monitor", if (state.isBackgroundMonitoring) "On" else "Off")
             }
             if (state.isScanning || state.isSyncingHistory) {
@@ -339,6 +343,7 @@ private fun SyncCard(
     onSyncHistory: () -> Unit,
     onStartMonitor: () -> Unit,
     onStopMonitor: () -> Unit,
+    onManualSync: () -> Unit,
     onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -384,6 +389,12 @@ private fun SyncCard(
                     enabled = state.isReady && !state.isSyncingHistory,
                 ) {
                     Text("Sync history")
+                }
+                OutlinedButton(
+                    onClick = onManualSync,
+                    enabled = state.hasHealthConnectPermissions && state.pendingHealthConnectSamples > 0,
+                ) {
+                    Text("Sync Health Connect")
                 }
             }
         }

@@ -24,6 +24,9 @@ class WhoopBackgroundMonitor(
     private var observeJob: Job? = null
     private var syncJob: Job? = null
 
+    val pendingSampleCount: Int
+        get() = synchronized(bufferedMetrics) { bufferedMetrics.size }
+
     fun start() {
         if (observeJob?.isActive == true) return
         onStatus("24/7 monitor started")
@@ -31,7 +34,6 @@ class WhoopBackgroundMonitor(
         observeJob = scope.launch {
             bleClient.events.collect { event ->
                 when (event) {
-                    is WhoopBleEvent.HeartRate -> event.healthMetrics?.let(::addMetric)
                     WhoopBleEvent.Ready -> bleClient.syncHistory()
                     else -> Unit
                 }
@@ -54,11 +56,24 @@ class WhoopBackgroundMonitor(
         onStatus("24/7 monitor stopped")
     }
 
+    fun addMetric(sample: HealthMetricSample) {
+        synchronized(bufferedMetrics) {
+            bufferedMetrics += sample
+            if (bufferedMetrics.size > MaxBufferedMetrics) {
+                bufferedMetrics.subList(0, bufferedMetrics.size - MaxBufferedMetrics).clear()
+            }
+        }
+    }
+
     suspend fun flush(enabledMetrics: EnabledHealthMetrics = EnabledHealthMetrics()) {
         val snapshot = synchronized(bufferedMetrics) {
             bufferedMetrics.toList().also { bufferedMetrics.clear() }
         }
-        if (snapshot.isEmpty()) return
+        if (snapshot.isEmpty()) {
+            onStatus("No validated Health Connect samples pending")
+            onSyncResult(HealthConnectSyncResult.empty())
+            return
+        }
         runCatching {
             healthConnect.write(snapshot, enabledMetrics)
         }.onSuccess { result ->
@@ -72,15 +87,6 @@ class WhoopBackgroundMonitor(
                 bufferedMetrics += snapshot
             }
             onStatus("Background Health Connect sync failed: ${error.message}")
-        }
-    }
-
-    private fun addMetric(sample: HealthMetricSample) {
-        synchronized(bufferedMetrics) {
-            bufferedMetrics += sample
-            if (bufferedMetrics.size > MaxBufferedMetrics) {
-                bufferedMetrics.subList(0, bufferedMetrics.size - MaxBufferedMetrics).clear()
-            }
         }
     }
 

@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -122,13 +123,20 @@ class WhoopBleClient(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun startHealthMonitoring() {
-        write(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = true))
-        write(WhoopCodecNative.enableOpticalData(nextSeq(), enabled = true))
-        write(WhoopCodecNative.toggleOpticalMode(nextSeq(), enabled = true))
-        write(WhoopCodecNative.toggleImuMode(nextSeq(), enabled = true))
-        write(WhoopCodecNative.toggleHistoricalImuMode(nextSeq(), enabled = true))
-        write(WhoopCodecNative.toggleR7DataCollection(nextSeq()))
-        syncHistory()
+        scope.launch {
+            writeSpaced(WhoopCodecNative.helloHarvard(nextSeq()))
+            writeSpaced(WhoopCodecNative.setTime(nextSeq()))
+            writeSpaced(WhoopCodecNative.getName(nextSeq()))
+            writeSpaced(WhoopCodecNative.toggleR7DataCollection(nextSeq()))
+            writeSpaced(WhoopCodecNative.toggleImuMode(nextSeq(), enabled = true))
+            writeSpaced(WhoopCodecNative.toggleHistoricalImuMode(nextSeq(), enabled = true))
+            repeat(OpticalEnableAttempts) {
+                writeSpaced(WhoopCodecNative.enableOpticalData(nextSeq(), enabled = true))
+                writeSpaced(WhoopCodecNative.toggleOpticalMode(nextSeq(), enabled = true))
+            }
+            writeSpaced(WhoopCodecNative.toggleRealtimeHr(nextSeq(), enabled = true))
+            syncHistoryCommands()
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -148,12 +156,9 @@ class WhoopBleClient(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun syncHistory() {
-        write(WhoopCodecNative.helloHarvard(nextSeq()))
-        write(WhoopCodecNative.setTime(nextSeq()))
-        write(WhoopCodecNative.getName(nextSeq()))
-        write(WhoopCodecNative.enterHighFreqSync(nextSeq()))
-        write(WhoopCodecNative.historyStart(nextSeq()))
-        emit(WhoopBleEvent.HistorySyncStarted)
+        scope.launch {
+            syncHistoryCommands(includeHandshake = true)
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -191,6 +196,22 @@ class WhoopBleClient(private val context: Context) {
             @Suppress("DEPRECATION")
             bluetoothGatt.writeCharacteristic(characteristic)
         }
+    }
+
+    private suspend fun writeSpaced(bytes: ByteArray?) {
+        write(bytes)
+        delay(CommandSpacingMillis)
+    }
+
+    private suspend fun syncHistoryCommands(includeHandshake: Boolean = false) {
+        if (includeHandshake) {
+            writeSpaced(WhoopCodecNative.helloHarvard(nextSeq()))
+            writeSpaced(WhoopCodecNative.setTime(nextSeq()))
+            writeSpaced(WhoopCodecNative.getName(nextSeq()))
+        }
+        writeSpaced(WhoopCodecNative.enterHighFreqSync(nextSeq()))
+        writeSpaced(WhoopCodecNative.historyStart(nextSeq()))
+        emit(WhoopBleEvent.HistorySyncStarted)
     }
 
     private val callback = object : BluetoothGattCallback() {
@@ -308,6 +329,8 @@ class WhoopBleClient(private val context: Context) {
     }
 
     companion object {
+        private const val CommandSpacingMillis = 150L
+        private const val OpticalEnableAttempts = 3
         private val ClientCharacteristicConfigUuid: UUID =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }

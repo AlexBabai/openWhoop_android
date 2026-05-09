@@ -54,14 +54,18 @@ object WhoopCodecNative {
         val unix = readLongLe(2)
         val bpm = this[10].toLong() and 0xFF
         if (unix <= 0 || bpm <= 0) return null
+        val time = when (source) {
+            WhoopProtocol.SampleSource.History -> Instant.ofEpochMilli(unix)
+            WhoopProtocol.SampleSource.Realtime -> Instant.ofEpochSecond(unix)
+        }
         val healthMetrics = if (size >= 54 && source == WhoopProtocol.SampleSource.History) {
-            decodeHealthMetrics(unix, bpm, source)
+            decodeHealthMetrics(time, bpm, source)
         } else {
             null
         }
         return DecodedWhoopData.HeartRate(
             WhoopProtocol.HeartRateSample(
-                time = Instant.ofEpochSecond(unix),
+                time = time,
                 bpm = bpm,
                 source = source,
             ),
@@ -70,7 +74,7 @@ object WhoopCodecNative {
     }
 
     private fun ByteArray.decodeHealthMetrics(
-        unix: Long,
+        time: Instant,
         bpm: Long,
         source: WhoopProtocol.SampleSource,
     ): HealthMetricSample {
@@ -103,7 +107,7 @@ object WhoopCodecNative {
             null
         }
         return HealthMetricSample(
-            time = Instant.ofEpochSecond(unix),
+            time = time,
             heartRateBpm = bpm,
             source = source,
             rrIntervalsMillis = rr,

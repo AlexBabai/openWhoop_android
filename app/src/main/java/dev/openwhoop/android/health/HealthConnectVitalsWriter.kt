@@ -175,4 +175,11 @@ class HealthConnectVitalsWriter(private val context: Context) {
 data class HealthConnectSyncResult(
     val insertedRecords: Int,
     val validated: ValidatedHealthMetrics,
-)
+) {
+    companion object {
+        fun empty() = HealthConnectSyncResult(
+            insertedRecords = 0,
+            validated = ValidatedHealthMetrics(),
+        )
+    }
+}

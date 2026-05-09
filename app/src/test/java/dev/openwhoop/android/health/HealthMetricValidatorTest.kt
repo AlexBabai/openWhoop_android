@@ -20,8 +20,8 @@ class HealthMetricValidatorTest {
             ),
         )
 
-        assertEquals(1, result.acceptedSamples)
-        assertEquals(2, result.rejectedSamples)
+        assertEquals(2, result.acceptedSamples)
+        assertEquals(1, result.rejectedSamples)
         assertEquals(2, result.heartRate.size)
         assertEquals(1, result.hrvRmssd.size)
         assertEquals(1, result.respiratoryRate.size)
@@ -42,6 +42,28 @@ class HealthMetricValidatorTest {
 
         assertEquals(1, result.spo2.size)
         assertTrue(result.spo2.single().value in 94.0..100.0)
+    }
+
+    @Test
+    fun acceptsHeartRateOnlySamplesWhenSensorFieldsAreMissing() {
+        val result = validator.validate(
+            listOf(
+                HealthMetricSample(
+                    time = base,
+                    heartRateBpm = 72,
+                    source = WhoopProtocol.SampleSource.Realtime,
+                ),
+                HealthMetricSample(
+                    time = base.plusSeconds(1),
+                    heartRateBpm = 74,
+                    source = WhoopProtocol.SampleSource.Realtime,
+                ),
+            ),
+        )
+
+        assertEquals(2, result.acceptedSamples)
+        assertEquals(0, result.rejectedSamples)
+        assertEquals(2, result.heartRate.size)
     }
 
     private fun sample(

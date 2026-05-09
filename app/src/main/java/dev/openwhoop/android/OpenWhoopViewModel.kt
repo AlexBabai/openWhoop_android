@@ -14,6 +14,7 @@ import dev.openwhoop.android.health.EnabledHealthMetrics
 import dev.openwhoop.android.health.HealthConnectVitalsWriter
 import dev.openwhoop.android.health.HealthMetricSample
 import dev.openwhoop.android.health.HealthMetricType
+import dev.openwhoop.android.health.HealthMetricValidator
 import dev.openwhoop.android.monitor.WhoopBackgroundMonitor
 import dev.openwhoop.android.monitor.WhoopMonitorService
 import kotlinx.coroutines.Job
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 class OpenWhoopViewModel(application: Application) : AndroidViewModel(application) {
     private val bleClient = WhoopBleClient(application)
     private val healthConnect = HealthConnectVitalsWriter(application)
+    private val validator = HealthMetricValidator()
     private val backgroundMonitor = WhoopBackgroundMonitor(
         bleClient = bleClient,
         healthConnect = healthConnect,
@@ -34,10 +36,13 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
         onStatus = { status -> _uiState.update { it.copy(status = status) } },
         onSyncResult = { result ->
             _uiState.update {
+                val healthMetrics = it.healthMetrics
+                val validated = if (healthMetrics.isEmpty()) result.validated else validator.validate(healthMetrics)
                 it.copy(
                     syncedToHealthConnect = it.syncedToHealthConnect + result.insertedRecords,
-                    validatedMetrics = result.validated.totalRecords,
-                    rejectedMetrics = it.rejectedMetrics + result.validated.rejectedSamples,
+                    validatedMetrics = validated.acceptedSamples,
+                    rejectedMetrics = validated.rejectedSamples,
+                    pendingHealthConnectSamples = 0,
                 )
             }
         },
@@ -133,6 +138,12 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(isBackgroundMonitoring = false) }
     }
 
+    fun manualSyncHealthConnect() {
+        viewModelScope.launch {
+            backgroundMonitor.flush(_uiState.value.enabledHealthMetrics)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         bleClient.close()
@@ -182,10 +193,17 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
             .distinctBy { it.time }
             .sortedByDescending { it.time }
             .take(500)
-        val metricSamples = (healthMetrics?.let { _uiState.value.healthMetrics + it } ?: _uiState.value.healthMetrics)
+        val metricSample = healthMetrics ?: HealthMetricSample(
+            time = sample.time,
+            heartRateBpm = sample.bpm,
+            source = sample.source,
+        )
+        val metricSamples = (_uiState.value.healthMetrics + metricSample)
             .distinctBy { it.time }
             .sortedByDescending { it.time }
             .take(2_000)
+        backgroundMonitor.addMetric(metricSample)
+        val validated = validator.validate(metricSamples)
         val algorithmStats = runCatching { WhoopAlgosNative.calculate(samples) }
             .getOrElse { AlgorithmStats() }
         _uiState.update { state ->
@@ -194,6 +212,9 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
                 healthMetrics = metricSamples,
                 latestBpm = sample.bpm,
                 algorithmStats = algorithmStats,
+                validatedMetrics = validated.acceptedSamples,
+                rejectedMetrics = validated.rejectedSamples,
+                pendingHealthConnectSamples = backgroundMonitor.pendingSampleCount,
                 status = "Received ${sample.source.name.lowercase()} HR: ${sample.bpm} bpm",
             )
         }
@@ -217,6 +238,7 @@ data class OpenWhoopUiState(
     val syncedToHealthConnect: Int = 0,
     val validatedMetrics: Int = 0,
     val rejectedMetrics: Int = 0,
+    val pendingHealthConnectSamples: Int = 0,
     val enabledHealthMetrics: EnabledHealthMetrics = EnabledHealthMetrics(),
     val status: String = "Ready",
 )
