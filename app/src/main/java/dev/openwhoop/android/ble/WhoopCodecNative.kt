@@ -1,8 +1,11 @@
 package dev.openwhoop.android.ble
 
+import dev.openwhoop.android.OpenWhoopLog
+import dev.openwhoop.android.health.HealthMetricSample
 import java.time.Instant
 
 object WhoopCodecNative {
+    private const val Tag = "WhoopCodecNative"
     private const val DecodeNoop = 0
     private const val DecodeHeartRate = 1
     private const val DecodeHistoryMetadata = 2
@@ -10,12 +13,21 @@ object WhoopCodecNative {
 
     private const val SourceRealtime = 0
     private const val SourceHistory = 1
+    private const val EncodedHealthMetricsSize = 59
+    private const val SensorPayloadBytes = 25
 
     init {
         System.loadLibrary("openwhoop_android_algos")
     }
 
     external fun toggleRealtimeHr(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleR7DataCollection(sequence: Int): ByteArray?
+    external fun toggleImuMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleHistoricalImuMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun enableOpticalData(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleOpticalMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleGen4Feature73(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleGen4Feature74(sequence: Int, enabled: Boolean): ByteArray?
     external fun helloHarvard(sequence: Int): ByteArray?
     external fun setTime(sequence: Int): ByteArray?
     external fun getName(sequence: Int): ByteArray?
@@ -31,10 +43,20 @@ object WhoopCodecNative {
         if (decoded.isEmpty()) return null
         return when (decoded[0].toInt() and 0xFF) {
             DecodeHeartRate -> decoded.decodeHeartRate()
-            DecodeHistoryMetadata -> decoded.decodeHistoryMetadata()
-            DecodeCommandResponse -> decoded.decodeCommandResponse()
-            DecodeNoop -> null
-            else -> null
+            DecodeHistoryMetadata -> decoded.decodeHistoryMetadata()?.also {
+                OpenWhoopLog.d(Tag, "History metadata type=${it.metadataType} unix=${it.timestampSeconds} endData=${it.endData.toHex()}")
+            }
+            DecodeCommandResponse -> decoded.decodeCommandResponse()?.also {
+                OpenWhoopLog.d(Tag, "Command response cmd=${it.command} seq=${it.sequence} result=${it.result}")
+            }
+            DecodeNoop -> {
+                OpenWhoopLog.d(Tag, "Decoded noop/unknown packet=${decoded.toHex()}")
+                null
+            }
+            else -> {
+                OpenWhoopLog.w(Tag, "Unknown decoded payload=${decoded.toHex()}")
+                null
+            }
         }
     }
 
@@ -48,13 +70,85 @@ object WhoopCodecNative {
         val unix = readLongLe(2)
         val bpm = this[10].toLong() and 0xFF
         if (unix <= 0 || bpm <= 0) return null
+        val time = when (source) {
+            WhoopProtocol.SampleSource.History -> Instant.ofEpochMilli(unix)
+            WhoopProtocol.SampleSource.Realtime -> Instant.ofEpochSecond(unix)
+        }
+        val healthMetrics = if (size >= EncodedHealthMetricsSize) {
+            decodeHealthMetrics(time, bpm, source)
+        } else {
+            null
+        }
+        OpenWhoopLog.d(Tag, "Decoded HR source=$source time=$time bpm=$bpm hasHealthMetrics=${healthMetrics != null} bytes=$size")
         return DecodedWhoopData.HeartRate(
             WhoopProtocol.HeartRateSample(
-                time = Instant.ofEpochSecond(unix),
+                time = time,
                 bpm = bpm,
                 source = source,
             ),
+            healthMetrics = healthMetrics,
         )
+    }
+
+    private fun ByteArray.decodeHealthMetrics(
+        time: Instant,
+        bpm: Long,
+        source: WhoopProtocol.SampleSource,
+    ): HealthMetricSample {
+        val rrCount = (this[11].toInt() and 0xFF).coerceIn(0, 4)
+        val rr = (0 until rrCount)
+            .mapNotNull { index ->
+                readU16Le(12 + index * 2).takeIf { it > 0 }
+            }
+        val sensorFlagOffset = 20
+        val sensorOffset = sensorFlagOffset + 1
+        val directSpo2Offset = sensorOffset + SensorPayloadBytes - 1
+        val imuFlagOffset = sensorOffset + SensorPayloadBytes
+        val imuOffset = imuFlagOffset + 1
+        val hasSensorData = this[sensorFlagOffset].toInt() != 0
+        val directSpo2 = if (hasSensorData) {
+            this[directSpo2Offset].toInt().and(0xFF).takeIf { it in 70..100 }?.toDouble()
+        } else {
+            null
+        }
+        val hasImu = this[imuFlagOffset].toInt() != 0
+        val movement = if (hasImu) {
+            HealthMetricSample.movementFromGravity(
+                readFloatLe(imuOffset),
+                readFloatLe(imuOffset + 4),
+                readFloatLe(imuOffset + 8),
+            )
+        } else if (hasSensorData) {
+            HealthMetricSample.movementFromGravity(
+                readFloatLe(sensorOffset + 12),
+                readFloatLe(sensorOffset + 16),
+                readFloatLe(sensorOffset + 20),
+            )
+        } else {
+            null
+        }
+        return HealthMetricSample(
+            time = time,
+            heartRateBpm = bpm,
+            source = source,
+            rrIntervalsMillis = rr,
+            spo2Percent = directSpo2,
+            spo2RedRaw = if (hasSensorData) readU16Le(sensorOffset) else null,
+            spo2IrRaw = if (hasSensorData) readU16Le(sensorOffset + 2) else null,
+            skinTemperatureRaw = if (hasSensorData) readU16Le(sensorOffset + 4) else null,
+            respiratoryRateRaw = if (hasSensorData) readU16Le(sensorOffset + 6) else null,
+            signalQuality = if (hasSensorData) readU16Le(sensorOffset + 8) else null,
+            worn = if (hasSensorData) this[sensorOffset + 10].toInt() != 0 else null,
+            movementScore = movement,
+        ).also {
+            OpenWhoopLog.d(
+                Tag,
+                "Decoded health metrics time=$time hr=$bpm rr=${rr.size} sensor=$hasSensorData " +
+                    "spo2Red=${it.spo2RedRaw} spo2Ir=${it.spo2IrRaw} tempRaw=${it.skinTemperatureRaw} " +
+                    "respRaw=${it.respiratoryRateRaw} directSpo2=${it.spo2Percent} worn=${it.worn} " +
+                    "signal=${it.signalQuality} imu=$hasImu movement=${it.movementScore}",
+            )
+        }
     }
 
     private fun ByteArray.decodeHistoryMetadata(): DecodedWhoopData.HistoryMetadata? {
@@ -82,10 +176,30 @@ object WhoopCodecNative {
         }
         return value
     }
+
+    private fun ByteArray.readU16Le(offset: Int): Int =
+        (this[offset].toInt() and 0xFF) or ((this[offset + 1].toInt() and 0xFF) shl 8)
+
+    private fun ByteArray.readFloatLe(offset: Int): Float =
+        Float.fromBits(
+            (this[offset].toInt() and 0xFF) or
+                ((this[offset + 1].toInt() and 0xFF) shl 8) or
+                ((this[offset + 2].toInt() and 0xFF) shl 16) or
+                ((this[offset + 3].toInt() and 0xFF) shl 24),
+        )
+
+    private fun ByteArray.toHex(): String =
+        joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xFF) }
 }
 
+internal fun ByteArray.toHexString(): String =
+    joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xFF) }
+
 sealed interface DecodedWhoopData {
-    data class HeartRate(val sample: WhoopProtocol.HeartRateSample) : DecodedWhoopData
+    data class HeartRate(
+        val sample: WhoopProtocol.HeartRateSample,
+        val healthMetrics: HealthMetricSample? = null,
+    ) : DecodedWhoopData
 
     data class HistoryMetadata(
         val metadataType: Int,

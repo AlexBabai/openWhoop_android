@@ -19,9 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.HealthAndSafety
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,6 +32,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import dev.openwhoop.android.algos.AlgorithmStats
 import dev.openwhoop.android.ble.WhoopProtocol
 import dev.openwhoop.android.ble.WhoopScanResult
+import dev.openwhoop.android.health.HealthMetricType
 import dev.openwhoop.android.ui.theme.OpenWhoopTheme
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -86,7 +88,10 @@ class MainActivity : ComponentActivity() {
                     onStartRealtime = viewModel::startRealtimeHr,
                     onStopRealtime = viewModel::stopRealtimeHr,
                     onSyncHistory = viewModel::syncHistory,
-                    onWriteHealthConnect = viewModel::writeHeartRateToHealthConnect,
+                    onStartMonitor = viewModel::startBackgroundMonitor,
+                    onStopMonitor = viewModel::stopBackgroundMonitor,
+                    onManualSync = viewModel::manualSyncHealthConnect,
+                    onMetricEnabledChange = viewModel::setMetricEnabled,
                 )
             }
         }
@@ -104,7 +109,10 @@ private fun OpenWhoopApp(
     onStartRealtime: () -> Unit,
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
-    onWriteHealthConnect: () -> Unit,
+    onStartMonitor: () -> Unit,
+    onStopMonitor: () -> Unit,
+    onManualSync: () -> Unit,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Scaffold(
         topBar = { OpenWhoopTopBar() },
@@ -142,7 +150,10 @@ private fun OpenWhoopApp(
                     onStartRealtime = onStartRealtime,
                     onStopRealtime = onStopRealtime,
                     onSyncHistory = onSyncHistory,
-                    onWriteHealthConnect = onWriteHealthConnect,
+                    onStartMonitor = onStartMonitor,
+                    onStopMonitor = onStopMonitor,
+                    onManualSync = onManualSync,
+                    onMetricEnabledChange = onMetricEnabledChange,
                 )
             }
             item {
@@ -216,7 +227,13 @@ private fun StatusCard(state: OpenWhoopUiState) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("Connection", if (state.isReady) "Ready" else if (state.isConnected) "Connected" else "Idle")
                 Metric("Samples", state.samples.size.toString())
-                Metric("Health Connect", state.syncedToHealthConnect.toString())
+                Metric("HC records", state.syncedToHealthConnect.toString())
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Metric("Validated", state.validatedMetrics.toString())
+                Metric("Rejected", state.rejectedMetrics.toString())
+                Metric("Pending", state.pendingHealthConnectSamples.toString())
+                Metric("Monitor", if (state.isBackgroundMonitoring) "On" else "Off")
             }
             if (state.isScanning || state.isSyncingHistory) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -241,8 +258,8 @@ private fun PermissionCard(
             Text(
                 "Health Connect: " + when {
                     !state.healthConnectAvailable -> "not available on this device"
-                    state.hasHealthConnectPermissions -> "write HR granted"
-                    else -> "write HR required"
+                    state.hasHealthConnectPermissions -> "write vitals granted"
+                    else -> "write vitals required"
                 },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -324,7 +341,10 @@ private fun SyncCard(
     onStartRealtime: () -> Unit,
     onStopRealtime: () -> Unit,
     onSyncHistory: () -> Unit,
-    onWriteHealthConnect: () -> Unit,
+    onStartMonitor: () -> Unit,
+    onStopMonitor: () -> Unit,
+    onManualSync: () -> Unit,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -332,7 +352,23 @@ private fun SyncCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionTitle(Icons.Rounded.Sync, "Sync")
-            Text("Realtime HR uses WHOOP command 0x03. History sync sends the Gen 4 high-frequency sync sequence from openwhoop.")
+            Text("Background monitor enables optical/IMU collection, syncs history automatically, validates low-movement worn samples, and writes selected metrics to Health Connect.")
+            Text("Health Connect write permissions used: ${HealthMetricType.entries.joinToString { it.permissionPurpose.substringAfterLast('.') }}.")
+            HealthMetricToggles(state, onMetricEnabledChange)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onStartMonitor,
+                    enabled = state.isReady && state.hasHealthConnectPermissions && !state.isBackgroundMonitoring,
+                ) {
+                    Text("Start 24/7")
+                }
+                OutlinedButton(
+                    onClick = onStopMonitor,
+                    enabled = state.isBackgroundMonitoring,
+                ) {
+                    Text("Stop 24/7")
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onStartRealtime,
@@ -350,16 +386,45 @@ private fun SyncCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onSyncHistory,
-                    enabled = state.isReady && !state.isSyncingHistory,
+                    enabled = state.isConnected && !state.isSyncingHistory,
                 ) {
                     Text("Sync history")
                 }
-                Button(
-                    onClick = onWriteHealthConnect,
-                    enabled = state.hasHealthConnectPermissions && state.samples.isNotEmpty(),
+                OutlinedButton(
+                    onClick = onManualSync,
+                    enabled = state.hasHealthConnectPermissions && state.pendingHealthConnectSamples > 0,
                 ) {
-                    Text("Write Health Connect")
+                    Text("Sync Health Connect")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthMetricToggles(
+    state: OpenWhoopUiState,
+    onMetricEnabledChange: (HealthMetricType, Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        HealthMetricType.entries.forEach { metric ->
+            val checked = when (metric) {
+                HealthMetricType.HeartRate -> state.enabledHealthMetrics.heartRate
+                HealthMetricType.Hrv -> state.enabledHealthMetrics.hrv
+                HealthMetricType.Spo2 -> state.enabledHealthMetrics.spo2
+                HealthMetricType.RespiratoryRate -> state.enabledHealthMetrics.respiratoryRate
+                HealthMetricType.SkinTemperature -> state.enabledHealthMetrics.skinTemperature
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(metric.label)
+                Switch(
+                    checked = checked,
+                    onCheckedChange = { onMetricEnabledChange(metric, it) },
+                )
             }
         }
     }

@@ -43,18 +43,19 @@ jobs:
       - name: Run lint and unit tests
         run: ./gradlew lintDebug testDebugUnitTest
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      - name: Build signed APKs
+        run: ./gradlew assembleDebug assembleRelease
 
       - name: Rename APK
         run: |
           mkdir -p release
           cp app/build/outputs/apk/debug/app-debug.apk release/openwhoop-debug-${{ github.sha }}.apk
+          cp app/build/outputs/apk/release/app-release.apk release/openwhoop-release-testkey-${{ github.sha }}.apk
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openwhoop-debug-apk
+          name: openwhoop-signed-apks
           path: release/*.apk
 
       - name: Publish latest debug release

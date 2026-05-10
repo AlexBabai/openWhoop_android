@@ -74,6 +74,75 @@ pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleRea
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleR7DataCollection(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_r7_data_collection().with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleImuMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_imu_mode(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleHistoricalImuMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_imu_mode_historical(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_enableOpticalData(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::enable_optical_data(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleOpticalMode(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    framed_command(&env, WhoopPacket::toggle_optical_mode(enabled != 0).with_seq(sequence as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleGen4Feature73(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    gen4_feature_command(&env, sequence, 0x73, enabled != 0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleGen4Feature74(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    gen4_feature_command(&env, sequence, 0x74, enabled != 0)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_helloHarvard(
     env: JNIEnv,
     _class: jni::objects::JClass,
@@ -183,6 +252,9 @@ pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_decodeGen
     };
     let packet_type = packet.packet_type;
     let command = packet.cmd;
+    if packet_type == PacketType::RealtimeData {
+        return encode_realtime_health(&env, packet);
+    }
     let data = match WhoopData::from_packet(packet, WhoopGeneration::Gen4) {
         Ok(data) => data,
         Err(_) => return encode_unknown(&env, packet_type, command),
@@ -228,6 +300,13 @@ fn framed_command(env: &JNIEnv, packet: WhoopPacket) -> jbyteArray {
     }
 }
 
+fn gen4_feature_command(env: &JNIEnv, sequence: jint, command: u8, enable: bool) -> jbyteArray {
+    framed_command(
+        env,
+        WhoopPacket::new(PacketType::Command, sequence as u8, command, vec![u8::from(enable)]),
+    )
+}
+
 fn byte_array(env: &JNIEnv, bytes: &[u8]) -> jbyteArray {
     match env.byte_array_from_slice(bytes) {
         Ok(array) => array.into_raw(),
@@ -238,7 +317,7 @@ fn byte_array(env: &JNIEnv, bytes: &[u8]) -> jbyteArray {
 fn encode_data(env: &JNIEnv, data: WhoopData) -> jbyteArray {
     match data {
         WhoopData::RealtimeHr { unix, bpm } => encode_hr(env, 0, u64::from(unix), bpm),
-        WhoopData::HistoryReading(HistoryReading { unix, bpm, .. }) => encode_hr(env, 1, unix, bpm),
+        WhoopData::HistoryReading(reading) => encode_history_reading(env, reading),
         WhoopData::HistoryMetadata {
             unix,
             end_data,
@@ -268,6 +347,111 @@ fn encode_hr(env: &JNIEnv, source: u8, unix: u64, bpm: u8) -> jbyteArray {
     encoded.push(source);
     encoded.extend_from_slice(&unix.to_le_bytes());
     encoded.push(bpm);
+    byte_array(env, &encoded)
+}
+
+fn encode_realtime_health(env: &JNIEnv, packet: WhoopPacket) -> jbyteArray {
+    const MAX_RR: usize = 4;
+    if packet.data.len() < 6 {
+        return ptr::null_mut();
+    }
+    let unix = u64::from(u32::from_le_bytes([
+        packet.cmd,
+        packet.data[0],
+        packet.data[1],
+        packet.data[2],
+    ]));
+    let bpm = packet.data[5];
+    if unix == 0 || bpm == 0 {
+        return ptr::null_mut();
+    }
+    let rr_count = packet
+        .data
+        .get(6)
+        .copied()
+        .map(usize::from)
+        .unwrap_or_default()
+        .min(MAX_RR);
+    let mut rr = Vec::with_capacity(rr_count);
+    for index in 0..rr_count {
+        let offset = 7 + index * 2;
+        if offset + 1 >= packet.data.len() {
+            break;
+        }
+        let value = u16::from_le_bytes([packet.data[offset], packet.data[offset + 1]]);
+        if value > 0 {
+            rr.push(value);
+        }
+    }
+
+    let mut encoded = Vec::with_capacity(59);
+    encoded.push(1);
+    encoded.push(0);
+    encoded.extend_from_slice(&unix.to_le_bytes());
+    encoded.push(bpm);
+    encoded.push(u8::try_from(rr.len()).unwrap_or(0));
+    for value in rr.iter().take(MAX_RR) {
+        encoded.extend_from_slice(&value.to_le_bytes());
+    }
+    for _ in rr.len().min(MAX_RR)..MAX_RR {
+        encoded.extend_from_slice(&0_u16.to_le_bytes());
+    }
+    encoded.push(0);
+    encoded.extend_from_slice(&[0; 25]);
+    encoded.push(0);
+    encoded.extend_from_slice(&[0; 12]);
+    byte_array(env, &encoded)
+}
+
+fn encode_history_reading(env: &JNIEnv, reading: HistoryReading) -> jbyteArray {
+    const MAX_RR: usize = 4;
+    let HistoryReading {
+        unix,
+        bpm,
+        rr,
+        imu_data,
+        sensor_data,
+    } = reading;
+    let mut encoded = Vec::with_capacity(54);
+    encoded.push(1);
+    encoded.push(1);
+    encoded.extend_from_slice(&unix.to_le_bytes());
+    encoded.push(bpm);
+    encoded.push(u8::try_from(rr.len().min(MAX_RR)).unwrap_or(0));
+    for value in rr.iter().take(MAX_RR) {
+        encoded.extend_from_slice(&value.to_le_bytes());
+    }
+    for _ in rr.len().min(MAX_RR)..MAX_RR {
+        encoded.extend_from_slice(&0_u16.to_le_bytes());
+    }
+    match sensor_data {
+        Some(sensor) => {
+            encoded.push(1);
+            encoded.extend_from_slice(&sensor.spo2_red.to_le_bytes());
+            encoded.extend_from_slice(&sensor.spo2_ir.to_le_bytes());
+            encoded.extend_from_slice(&sensor.skin_temp_raw.to_le_bytes());
+            encoded.extend_from_slice(&sensor.resp_rate_raw.to_le_bytes());
+            encoded.extend_from_slice(&sensor.signal_quality.to_le_bytes());
+            encoded.push(sensor.skin_contact);
+            for value in sensor.accel_gravity {
+                encoded.extend_from_slice(&value.to_le_bytes());
+            }
+            encoded.push(sensor.spo2_pct.unwrap_or(0));
+        }
+        None => {
+            encoded.push(0);
+            encoded.extend_from_slice(&[0; 25]);
+        }
+    }
+    if let Some(sample) = imu_data.first() {
+        encoded.push(1);
+        encoded.extend_from_slice(&sample.acc_x_g.to_le_bytes());
+        encoded.extend_from_slice(&sample.acc_y_g.to_le_bytes());
+        encoded.extend_from_slice(&sample.acc_z_g.to_le_bytes());
+    } else {
+        encoded.push(0);
+        encoded.extend_from_slice(&[0; 12]);
+    }
     byte_array(env, &encoded)
 }
 
