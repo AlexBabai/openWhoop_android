@@ -1,5 +1,7 @@
 package dev.openwhoop.android.health
 
+import dev.openwhoop.android.OpenWhoopLog
+
 class HealthMetricValidator {
     fun validate(samples: List<HealthMetricSample>): ValidatedHealthMetrics {
         val sorted = samples
@@ -23,14 +25,23 @@ class HealthMetricValidator {
         val skinTemperature = lowMovement.mapNotNull { sample ->
             sample.skinTemperatureCelsius()?.let { TimedDouble(sample.time, it) }
         }
+        val spo2 = calculateSpo2(lowMovement)
+        val accepted = acceptedSamples(heartRateSamples, lowMovement)
+        OpenWhoopLog.d(
+            Tag,
+            "validate input=${samples.size} sorted=${sorted.size} worn=${worn.size} " +
+                "lowMovement=${lowMovement.size} hrSamples=${heartRateSamples.size} hrRecords=${heartRate.size} " +
+                "hrv=${hrv.size} spo2=${spo2.size} resp=${respiratoryRate.size} temp=${skinTemperature.size} " +
+                "accepted=$accepted rejected=${sorted.size - accepted}",
+        )
         return ValidatedHealthMetrics(
             heartRate = heartRate,
             hrvRmssd = hrv,
-            spo2 = calculateSpo2(lowMovement),
+            spo2 = spo2,
             respiratoryRate = respiratoryRate,
             skinTemperatureCelsius = skinTemperature,
-            acceptedSamples = acceptedSamples(heartRateSamples, lowMovement),
-            rejectedSamples = sorted.size - acceptedSamples(heartRateSamples, lowMovement),
+            acceptedSamples = accepted,
+            rejectedSamples = sorted.size - accepted,
         )
     }
 
@@ -82,6 +93,7 @@ class HealthMetricValidator {
     }
 
     companion object {
+        private const val Tag = "HealthMetricValidator"
         private const val MaxGravityMovementScore = 0.35
         private const val MaxSignalNoise = 4_000
         private const val Spo2WindowSize = 30

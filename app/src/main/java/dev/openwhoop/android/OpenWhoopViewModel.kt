@@ -25,6 +25,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class OpenWhoopViewModel(application: Application) : AndroidViewModel(application) {
+    private companion object {
+        const val Tag = "OpenWhoopViewModel"
+    }
+
     private val bleClient = WhoopBleClient(application)
     private val healthConnect = HealthConnectVitalsWriter(application)
     private val validator = HealthMetricValidator()
@@ -37,7 +41,13 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
         onSyncResult = { result ->
             _uiState.update {
                 val healthMetrics = it.healthMetrics
-                val validated = if (healthMetrics.isEmpty()) result.validated else validator.validate(healthMetrics)
+                val validated = validator.validate(healthMetrics)
+                OpenWhoopLog.d(
+                    Tag,
+                    "Sync result inserted=${result.insertedRecords} resultAccepted=${result.validated.acceptedSamples} " +
+                        "resultRejected=${result.validated.rejectedSamples} uiSamples=${healthMetrics.size} " +
+                        "uiAccepted=${validated.acceptedSamples} uiRejected=${validated.rejectedSamples}",
+                )
                 it.copy(
                     syncedToHealthConnect = it.syncedToHealthConnect + result.insertedRecords,
                     validatedMetrics = validated.acceptedSamples,
@@ -204,6 +214,12 @@ class OpenWhoopViewModel(application: Application) : AndroidViewModel(applicatio
             .take(2_000)
         backgroundMonitor.addMetric(metricSample)
         val validated = validator.validate(metricSamples)
+        OpenWhoopLog.d(
+            Tag,
+            "addSample source=${sample.source} bpm=${sample.bpm} time=${sample.time} " +
+                "healthMetrics=${healthMetrics != null} samples=${samples.size} metricSamples=${metricSamples.size} " +
+                "accepted=${validated.acceptedSamples} rejected=${validated.rejectedSamples} pending=${backgroundMonitor.pendingSampleCount}",
+        )
         val algorithmStats = runCatching { WhoopAlgosNative.calculate(samples) }
             .getOrElse { AlgorithmStats() }
         _uiState.update { state ->

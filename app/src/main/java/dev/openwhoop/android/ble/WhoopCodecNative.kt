@@ -1,9 +1,11 @@
 package dev.openwhoop.android.ble
 
+import dev.openwhoop.android.OpenWhoopLog
 import dev.openwhoop.android.health.HealthMetricSample
 import java.time.Instant
 
 object WhoopCodecNative {
+    private const val Tag = "WhoopCodecNative"
     private const val DecodeNoop = 0
     private const val DecodeHeartRate = 1
     private const val DecodeHistoryMetadata = 2
@@ -22,6 +24,8 @@ object WhoopCodecNative {
     external fun toggleHistoricalImuMode(sequence: Int, enabled: Boolean): ByteArray?
     external fun enableOpticalData(sequence: Int, enabled: Boolean): ByteArray?
     external fun toggleOpticalMode(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleGen4Feature73(sequence: Int, enabled: Boolean): ByteArray?
+    external fun toggleGen4Feature74(sequence: Int, enabled: Boolean): ByteArray?
     external fun helloHarvard(sequence: Int): ByteArray?
     external fun setTime(sequence: Int): ByteArray?
     external fun getName(sequence: Int): ByteArray?
@@ -37,10 +41,20 @@ object WhoopCodecNative {
         if (decoded.isEmpty()) return null
         return when (decoded[0].toInt() and 0xFF) {
             DecodeHeartRate -> decoded.decodeHeartRate()
-            DecodeHistoryMetadata -> decoded.decodeHistoryMetadata()
-            DecodeCommandResponse -> decoded.decodeCommandResponse()
-            DecodeNoop -> null
-            else -> null
+            DecodeHistoryMetadata -> decoded.decodeHistoryMetadata()?.also {
+                OpenWhoopLog.d(Tag, "History metadata type=${it.metadataType} unix=${it.timestampSeconds} endData=${it.endData.toHex()}")
+            }
+            DecodeCommandResponse -> decoded.decodeCommandResponse()?.also {
+                OpenWhoopLog.d(Tag, "Command response cmd=${it.command} seq=${it.sequence} result=${it.result}")
+            }
+            DecodeNoop -> {
+                OpenWhoopLog.d(Tag, "Decoded noop/unknown packet=${decoded.toHex()}")
+                null
+            }
+            else -> {
+                OpenWhoopLog.w(Tag, "Unknown decoded payload=${decoded.toHex()}")
+                null
+            }
         }
     }
 
@@ -63,6 +77,7 @@ object WhoopCodecNative {
         } else {
             null
         }
+        OpenWhoopLog.d(Tag, "Decoded HR source=$source time=$time bpm=$bpm hasHealthMetrics=${healthMetrics != null} bytes=$size")
         return DecodedWhoopData.HeartRate(
             WhoopProtocol.HeartRateSample(
                 time = time,
@@ -119,7 +134,14 @@ object WhoopCodecNative {
             signalQuality = if (hasSensorData) readU16Le(sensorOffset + 8) else null,
             worn = if (hasSensorData) this[sensorOffset + 10].toInt() != 0 else null,
             movementScore = movement,
-        )
+        ).also {
+            OpenWhoopLog.d(
+                Tag,
+                "Decoded health metrics time=$time hr=$bpm rr=${rr.size} sensor=$hasSensorData " +
+                    "spo2Red=${it.spo2RedRaw} spo2Ir=${it.spo2IrRaw} tempRaw=${it.skinTemperatureRaw} " +
+                    "respRaw=${it.respiratoryRateRaw} worn=${it.worn} signal=${it.signalQuality} movement=${it.movementScore}",
+            )
+        }
     }
 
     private fun ByteArray.decodeHistoryMetadata(): DecodedWhoopData.HistoryMetadata? {
@@ -158,7 +180,13 @@ object WhoopCodecNative {
                 ((this[offset + 2].toInt() and 0xFF) shl 16) or
                 ((this[offset + 3].toInt() and 0xFF) shl 24),
         )
+
+    private fun ByteArray.toHex(): String =
+        joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xFF) }
 }
+
+internal fun ByteArray.toHexString(): String =
+    joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xFF) }
 
 sealed interface DecodedWhoopData {
     data class HeartRate(

@@ -123,6 +123,26 @@ pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleOpt
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleGen4Feature73(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    gen4_feature_command(&env, sequence, 0x73, enabled != 0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_toggleGen4Feature74(
+    env: JNIEnv,
+    _class: jni::objects::JClass,
+    sequence: jint,
+    enabled: jboolean,
+) -> jbyteArray {
+    gen4_feature_command(&env, sequence, 0x74, enabled != 0)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_helloHarvard(
     env: JNIEnv,
     _class: jni::objects::JClass,
@@ -275,6 +295,13 @@ fn framed_command(env: &JNIEnv, packet: WhoopPacket) -> jbyteArray {
         Ok(bytes) => byte_array(env, &bytes),
         Err(_) => ptr::null_mut(),
     }
+}
+
+fn gen4_feature_command(env: &JNIEnv, sequence: jint, command: u8, enable: bool) -> jbyteArray {
+    framed_command(
+        env,
+        WhoopPacket::new(PacketType::Command, sequence as u8, command, vec![u8::from(enable)]),
+    )
 }
 
 fn byte_array(env: &JNIEnv, bytes: &[u8]) -> jbyteArray {

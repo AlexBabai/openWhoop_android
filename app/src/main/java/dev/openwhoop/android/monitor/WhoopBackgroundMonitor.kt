@@ -1,5 +1,6 @@
 package dev.openwhoop.android.monitor
 
+import dev.openwhoop.android.OpenWhoopLog
 import dev.openwhoop.android.ble.WhoopBleClient
 import dev.openwhoop.android.ble.WhoopBleEvent
 import dev.openwhoop.android.health.EnabledHealthMetrics
@@ -29,12 +30,16 @@ class WhoopBackgroundMonitor(
 
     fun start() {
         if (observeJob?.isActive == true) return
+        OpenWhoopLog.d(Tag, "Starting monitor")
         onStatus("24/7 monitor started")
         bleClient.startHealthMonitoring()
         observeJob = scope.launch {
             bleClient.events.collect { event ->
                 when (event) {
-                    WhoopBleEvent.Ready -> bleClient.syncHistory()
+                    WhoopBleEvent.Ready -> {
+                        OpenWhoopLog.d(Tag, "BLE ready; requesting history sync")
+                        bleClient.syncHistory()
+                    }
                     else -> Unit
                 }
             }
@@ -48,6 +53,7 @@ class WhoopBackgroundMonitor(
     }
 
     fun stop() {
+        OpenWhoopLog.d(Tag, "Stopping monitor")
         observeJob?.cancel()
         syncJob?.cancel()
         observeJob = null
@@ -62,6 +68,11 @@ class WhoopBackgroundMonitor(
             if (bufferedMetrics.size > MaxBufferedMetrics) {
                 bufferedMetrics.subList(0, bufferedMetrics.size - MaxBufferedMetrics).clear()
             }
+            OpenWhoopLog.d(
+                Tag,
+                "Buffered metric time=${sample.time} hr=${sample.heartRateBpm} source=${sample.source} " +
+                    "sensor=${sample.spo2RedRaw != null || sample.skinTemperatureRaw != null} pending=${bufferedMetrics.size}",
+            )
         }
     }
 
@@ -69,20 +80,26 @@ class WhoopBackgroundMonitor(
         val snapshot = synchronized(bufferedMetrics) {
             bufferedMetrics.toList().also { bufferedMetrics.clear() }
         }
+        OpenWhoopLog.d(Tag, "Flush requested snapshot=${snapshot.size} enabled=$enabledMetrics")
         if (snapshot.isEmpty()) {
             onStatus("No validated Health Connect samples pending")
-            onSyncResult(HealthConnectSyncResult.empty())
             return
         }
         runCatching {
             healthConnect.write(snapshot, enabledMetrics)
         }.onSuccess { result ->
+            OpenWhoopLog.d(
+                Tag,
+                "Flush success inserted=${result.insertedRecords} accepted=${result.validated.acceptedSamples} " +
+                    "rejected=${result.validated.rejectedSamples} records=${result.validated.totalRecords}",
+            )
             onSyncResult(result)
             onStatus(
                 "Synced ${result.insertedRecords} Health Connect record(s); " +
                     "accepted ${result.validated.acceptedSamples}, rejected ${result.validated.rejectedSamples}",
             )
         }.onFailure { error ->
+            OpenWhoopLog.e(Tag, "Flush failed", error)
             synchronized(bufferedMetrics) {
                 bufferedMetrics += snapshot
             }
@@ -91,6 +108,7 @@ class WhoopBackgroundMonitor(
     }
 
     companion object {
+        private const val Tag = "WhoopBackgroundMonitor"
         private val SyncInterval = 15.minutes
         private const val MaxBufferedMetrics = 7_200
     }

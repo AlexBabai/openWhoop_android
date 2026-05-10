@@ -1,5 +1,6 @@
 package dev.openwhoop.android.health
 
+import dev.openwhoop.android.OpenWhoopLog
 import android.content.Context
 import androidx.health.connect.client.ExperimentalDeduplicationApi
 import androidx.health.connect.client.HealthConnectClient
@@ -57,8 +58,16 @@ class HealthConnectVitalsWriter(private val context: Context) {
         val healthConnectClient = requireNotNull(client) { "Health Connect is not available" }
         val validated = validator.validate(samples)
         val records = buildRecords(healthConnectClient, validated, enabledMetrics)
+        OpenWhoopLog.d(
+            Tag,
+            "write samples=${samples.size} enabled=$enabledMetrics accepted=${validated.acceptedSamples} " +
+                "rejected=${validated.rejectedSamples} records=${records.size}",
+        )
         if (records.isNotEmpty()) {
             healthConnectClient.insertRecords(records)
+            OpenWhoopLog.d(Tag, "Inserted ${records.size} Health Connect records")
+        } else {
+            OpenWhoopLog.d(Tag, "No Health Connect records to insert")
         }
         return HealthConnectSyncResult(
             insertedRecords = records.size,
@@ -170,6 +179,10 @@ class HealthConnectVitalsWriter(private val context: Context) {
             clientRecordId = "openwhoop-$clientRecordId",
             clientRecordVersion = 1,
         )
+
+    companion object {
+        private const val Tag = "HealthConnectVitalsWriter"
+    }
 }
 
 data class HealthConnectSyncResult(
