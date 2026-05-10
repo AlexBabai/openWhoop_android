@@ -29,6 +29,21 @@ class HealthMetricValidatorTest {
     }
 
     @Test
+    fun excludesHighMovementHeartRateWhenFallbackIsDisabled() {
+        val result = validator.validate(
+            listOf(
+                sample(0, worn = true, movementScore = 0.80),
+                sample(1, worn = true, movementScore = 0.90),
+            ),
+            includeFallbackHeartRate = false,
+        )
+
+        assertEquals(2, result.acceptedSamples)
+        assertEquals(0, result.rejectedSamples)
+        assertEquals(0, result.heartRate.size)
+    }
+
+    @Test
     fun calculatesSpo2FromLowMovementRawWindow() {
         val samples = (0 until 30).map { index ->
             sample(
@@ -64,6 +79,24 @@ class HealthMetricValidatorTest {
         assertEquals(2, result.acceptedSamples)
         assertEquals(0, result.rejectedSamples)
         assertEquals(2, result.heartRate.size)
+    }
+
+    @Test
+    fun disablesHeartRateFallbackForRealtimeOnlyHealthConnectWrites() {
+        val result = validator.validate(
+            listOf(
+                HealthMetricSample(
+                    time = base,
+                    heartRateBpm = 72,
+                    source = WhoopProtocol.SampleSource.Realtime,
+                ),
+            ),
+            includeFallbackHeartRate = false,
+        )
+
+        assertEquals(0, result.acceptedSamples)
+        assertEquals(1, result.rejectedSamples)
+        assertEquals(0, result.heartRate.size)
     }
 
     private fun sample(

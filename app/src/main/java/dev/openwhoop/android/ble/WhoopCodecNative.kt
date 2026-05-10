@@ -13,6 +13,7 @@ object WhoopCodecNative {
 
     private const val SourceRealtime = 0
     private const val SourceHistory = 1
+    private const val SensorPayloadBytes = 25
 
     init {
         System.loadLibrary("openwhoop_android_algos")
@@ -98,19 +99,23 @@ object WhoopCodecNative {
             .mapNotNull { index ->
                 readU16Le(12 + index * 2).takeIf { it > 0 }
             }
-        val hasSensorData = this[20].toInt() != 0
-        val sensorOffset = 21
+        val sensorFlagOffset = 20
+        val sensorOffset = sensorFlagOffset + 1
+        val directSpo2Offset = sensorOffset + SensorPayloadBytes - 1
+        val imuFlagOffset = sensorOffset + SensorPayloadBytes
+        val imuOffset = imuFlagOffset + 1
+        val hasSensorData = this[sensorFlagOffset].toInt() != 0
         val directSpo2 = if (hasSensorData) {
-            this[45].toInt().and(0xFF).takeIf { it in 70..100 }?.toDouble()
+            this[directSpo2Offset].toInt().and(0xFF).takeIf { it in 70..100 }?.toDouble()
         } else {
             null
         }
-        val hasImu = this[46].toInt() != 0
+        val hasImu = this[imuFlagOffset].toInt() != 0
         val movement = if (hasImu) {
             HealthMetricSample.movementFromGravity(
-                readFloatLe(47),
-                readFloatLe(51),
-                readFloatLe(55),
+                readFloatLe(imuOffset),
+                readFloatLe(imuOffset + 4),
+                readFloatLe(imuOffset + 8),
             )
         } else if (hasSensorData) {
             HealthMetricSample.movementFromGravity(
@@ -139,7 +144,8 @@ object WhoopCodecNative {
                 Tag,
                 "Decoded health metrics time=$time hr=$bpm rr=${rr.size} sensor=$hasSensorData " +
                     "spo2Red=${it.spo2RedRaw} spo2Ir=${it.spo2IrRaw} tempRaw=${it.skinTemperatureRaw} " +
-                    "respRaw=${it.respiratoryRateRaw} worn=${it.worn} signal=${it.signalQuality} movement=${it.movementScore}",
+                    "respRaw=${it.respiratoryRateRaw} directSpo2=${it.spo2Percent} worn=${it.worn} " +
+                    "signal=${it.signalQuality} imu=$hasImu movement=${it.movementScore}",
             )
         }
     }

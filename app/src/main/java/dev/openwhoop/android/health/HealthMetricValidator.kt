@@ -3,15 +3,31 @@ package dev.openwhoop.android.health
 import dev.openwhoop.android.OpenWhoopLog
 
 class HealthMetricValidator {
-    fun validate(samples: List<HealthMetricSample>): ValidatedHealthMetrics {
+    fun validate(
+        samples: List<HealthMetricSample>,
+        includeFallbackHeartRate: Boolean = true,
+    ): ValidatedHealthMetrics {
         val sorted = samples
             .distinctBy { it.time }
             .sortedBy { it.time }
         val worn = sorted.filter(::isWorn)
         val lowMovement = worn.filter(::isLowMovement)
-        val heartRateSamples = worn.ifEmpty {
+        val heartRateSamples = when {
+            includeFallbackHeartRate && worn.isNotEmpty() -> worn
+            !includeFallbackHeartRate -> lowMovement.filter {
+                it.source == dev.openwhoop.android.ble.WhoopProtocol.SampleSource.History && it.hasAnyRawVital()
+            }
+            includeFallbackHeartRate -> worn.ifEmpty {
+                sorted.filter(::hasValidHeartRate)
+            }
+            else -> emptyList()
+        }
+        val acceptedSamples = if (includeFallbackHeartRate) {
+            heartRateSamples
+        } else {
             sorted.filter {
-                it.heartRateBpm?.let { bpm -> bpm in HealthMetricSample.MinHeartRate..HealthMetricSample.MaxHeartRate } == true
+                (hasValidHeartRate(it) && it.source == dev.openwhoop.android.ble.WhoopProtocol.SampleSource.History) ||
+                    it.hasAnyRawVital()
             }
         }
         val heartRate = heartRateSamples
@@ -26,13 +42,17 @@ class HealthMetricValidator {
             sample.skinTemperatureCelsius()?.let { TimedDouble(sample.time, it) }
         }
         val spo2 = calculateSpo2(lowMovement)
-        val accepted = acceptedSamples(heartRateSamples, lowMovement)
+        val accepted = if (includeFallbackHeartRate) {
+            acceptedSamples(heartRateSamples, lowMovement)
+        } else {
+            acceptedSamples.distinctBy { it.time }.size
+        }
         OpenWhoopLog.d(
             Tag,
             "validate input=${samples.size} sorted=${sorted.size} worn=${worn.size} " +
                 "lowMovement=${lowMovement.size} hrSamples=${heartRateSamples.size} hrRecords=${heartRate.size} " +
                 "hrv=${hrv.size} spo2=${spo2.size} resp=${respiratoryRate.size} temp=${skinTemperature.size} " +
-                "accepted=$accepted rejected=${sorted.size - accepted}",
+                "accepted=$accepted rejected=${sorted.size - accepted} fallbackHr=$includeFallbackHeartRate",
         )
         return ValidatedHealthMetrics(
             heartRate = heartRate,
@@ -57,6 +77,9 @@ class HealthMetricValidator {
 
     private fun isLowMovement(sample: HealthMetricSample): Boolean =
         sample.movementScore?.let { it <= MaxGravityMovementScore } != false
+
+    private fun hasValidHeartRate(sample: HealthMetricSample): Boolean =
+        sample.heartRateBpm?.let { it in HealthMetricSample.MinHeartRate..HealthMetricSample.MaxHeartRate } == true
 
     private fun calculateSpo2(samples: List<HealthMetricSample>): List<TimedDouble> {
         val direct = samples.mapNotNull { sample ->

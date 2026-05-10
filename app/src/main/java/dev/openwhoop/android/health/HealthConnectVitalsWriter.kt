@@ -56,12 +56,14 @@ class HealthConnectVitalsWriter(private val context: Context) {
         enabledMetrics: EnabledHealthMetrics = EnabledHealthMetrics(),
     ): HealthConnectSyncResult {
         val healthConnectClient = requireNotNull(client) { "Health Connect is not available" }
-        val validated = validator.validate(samples)
+        val validated = validator.validate(samples, includeFallbackHeartRate = false)
         val records = buildRecords(healthConnectClient, validated, enabledMetrics)
         OpenWhoopLog.d(
             Tag,
             "write samples=${samples.size} enabled=$enabledMetrics accepted=${validated.acceptedSamples} " +
-                "rejected=${validated.rejectedSamples} records=${records.size}",
+                "rejected=${validated.rejectedSamples} hr=${validated.heartRate.size} hrv=${validated.hrvRmssd.size} " +
+                "spo2=${validated.spo2.size} resp=${validated.respiratoryRate.size} " +
+                "temp=${validated.skinTemperatureCelsius.size} records=${records.size}",
         )
         if (records.isNotEmpty()) {
             healthConnectClient.insertRecords(records)
@@ -114,8 +116,37 @@ class HealthConnectVitalsWriter(private val context: Context) {
                 )
             }
         }
-        if (enabledMetrics.skinTemperature && hasSkinTemperatureFeature(healthConnectClient)) {
+        val skinTemperatureFeatureAvailable = hasSkinTemperatureFeature(healthConnectClient)
+        if (enabledMetrics.skinTemperature && skinTemperatureFeatureAvailable) {
             skinTemperatureRecord(validated)?.let { records += it }
+        }
+        OpenWhoopLog.d(
+            Tag,
+            "buildRecords enabled=$enabledMetrics skinTempFeature=$skinTemperatureFeatureAvailable " +
+                "hr=${validated.heartRate.size} hrv=${validated.hrvRmssd.size} spo2=${validated.spo2.size} " +
+                "resp=${validated.respiratoryRate.size} temp=${validated.skinTemperatureCelsius.size} records=${records.size}",
+        )
+        val missingReasons = buildList {
+            if (enabledMetrics.heartRate && validated.heartRate.isEmpty()) {
+                add("HR needs low-movement worn history samples; realtime fallback is UI-only")
+            }
+            if (enabledMetrics.hrv && validated.hrvRmssd.isEmpty()) {
+                add("HRV needs >=2 RR intervals on low-movement worn history samples")
+            }
+            if (enabledMetrics.spo2 && validated.spo2.isEmpty()) {
+                add("SpO2 needs direct percent or 30 raw red/IR low-movement worn samples")
+            }
+            if (enabledMetrics.respiratoryRate && validated.respiratoryRate.isEmpty()) {
+                add("respiratory rate needs decoded raw respiratory history samples")
+            }
+            if (enabledMetrics.skinTemperature && !skinTemperatureFeatureAvailable) {
+                add("skin temperature Health Connect feature unavailable")
+            } else if (enabledMetrics.skinTemperature && validated.skinTemperatureCelsius.isEmpty()) {
+                add("skin temperature needs decoded raw temp history samples")
+            }
+        }
+        if (missingReasons.isNotEmpty()) {
+            OpenWhoopLog.d(Tag, "No record reasons: ${missingReasons.joinToString("; ")}")
         }
         return records
     }

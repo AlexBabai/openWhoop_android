@@ -45,6 +45,14 @@ data class HealthMetricSample(
         return WhoopProtocol.HeartRateSample(time, bpm, source)
     }
 
+    fun hasAnyRawVital(): Boolean =
+        rrIntervalsMillis.isNotEmpty() ||
+            spo2Percent != null ||
+            spo2RedRaw != null ||
+            spo2IrRaw != null ||
+            respiratoryRateRaw != null ||
+            skinTemperatureRaw != null
+
     companion object {
         const val MinHeartRate = 25L
         const val MaxHeartRate = 240L
