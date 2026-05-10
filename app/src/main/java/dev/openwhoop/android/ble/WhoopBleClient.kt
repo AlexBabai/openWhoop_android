@@ -179,7 +179,7 @@ class WhoopBleClient(private val context: Context) {
     fun syncHistory() {
         if (!subscriptionsReady) {
             OpenWhoopLog.w(Tag, "syncHistory requested before subscriptions are ready")
-            emit(WhoopBleEvent.Error("WHOOP GATT subscriptions are not ready yet"))
+            emit(WhoopBleEvent.Error("WHOOP GATT subscriptions are not ready yet; retry in a moment"))
             return
         }
         scope.launch {

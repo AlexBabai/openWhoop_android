@@ -386,7 +386,7 @@ private fun SyncCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onSyncHistory,
-                    enabled = state.isReady && !state.isSyncingHistory,
+                    enabled = state.isConnected && !state.isSyncingHistory,
                 ) {
                     Text("Sync history")
                 }
