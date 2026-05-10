@@ -13,6 +13,7 @@ object WhoopCodecNative {
 
     private const val SourceRealtime = 0
     private const val SourceHistory = 1
+    private const val EncodedHealthMetricsSize = 59
     private const val SensorPayloadBytes = 25
 
     init {
@@ -73,7 +74,7 @@ object WhoopCodecNative {
             WhoopProtocol.SampleSource.History -> Instant.ofEpochMilli(unix)
             WhoopProtocol.SampleSource.Realtime -> Instant.ofEpochSecond(unix)
         }
-        val healthMetrics = if (size >= 54 && source == WhoopProtocol.SampleSource.History) {
+        val healthMetrics = if (size >= EncodedHealthMetricsSize) {
             decodeHealthMetrics(time, bpm, source)
         } else {
             null

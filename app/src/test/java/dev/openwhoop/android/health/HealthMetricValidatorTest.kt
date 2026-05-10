@@ -99,6 +99,26 @@ class HealthMetricValidatorTest {
         assertEquals(0, result.heartRate.size)
     }
 
+    @Test
+    fun allowsRealtimeRrHealthMonitorSamplesForHealthConnectWrites() {
+        val result = validator.validate(
+            listOf(
+                HealthMetricSample(
+                    time = base,
+                    heartRateBpm = 72,
+                    source = WhoopProtocol.SampleSource.Realtime,
+                    rrIntervalsMillis = listOf(800, 820, 810),
+                ),
+            ),
+            includeFallbackHeartRate = false,
+        )
+
+        assertEquals(1, result.acceptedSamples)
+        assertEquals(0, result.rejectedSamples)
+        assertEquals(1, result.heartRate.size)
+        assertEquals(1, result.hrvRmssd.size)
+    }
+
     private fun sample(
         second: Long,
         worn: Boolean = true,

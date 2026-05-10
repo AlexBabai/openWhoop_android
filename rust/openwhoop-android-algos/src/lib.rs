@@ -252,6 +252,9 @@ pub extern "system" fn Java_dev_openwhoop_android_ble_WhoopCodecNative_decodeGen
     };
     let packet_type = packet.packet_type;
     let command = packet.cmd;
+    if packet_type == PacketType::RealtimeData {
+        return encode_realtime_health(&env, packet);
+    }
     let data = match WhoopData::from_packet(packet, WhoopGeneration::Gen4) {
         Ok(data) => data,
         Err(_) => return encode_unknown(&env, packet_type, command),
@@ -344,6 +347,59 @@ fn encode_hr(env: &JNIEnv, source: u8, unix: u64, bpm: u8) -> jbyteArray {
     encoded.push(source);
     encoded.extend_from_slice(&unix.to_le_bytes());
     encoded.push(bpm);
+    byte_array(env, &encoded)
+}
+
+fn encode_realtime_health(env: &JNIEnv, packet: WhoopPacket) -> jbyteArray {
+    const MAX_RR: usize = 4;
+    if packet.data.len() < 6 {
+        return ptr::null_mut();
+    }
+    let unix = u64::from(u32::from_le_bytes([
+        packet.cmd,
+        packet.data[0],
+        packet.data[1],
+        packet.data[2],
+    ]));
+    let bpm = packet.data[5];
+    if unix == 0 || bpm == 0 {
+        return ptr::null_mut();
+    }
+    let rr_count = packet
+        .data
+        .get(6)
+        .copied()
+        .map(usize::from)
+        .unwrap_or_default()
+        .min(MAX_RR);
+    let mut rr = Vec::with_capacity(rr_count);
+    for index in 0..rr_count {
+        let offset = 7 + index * 2;
+        if offset + 1 >= packet.data.len() {
+            break;
+        }
+        let value = u16::from_le_bytes([packet.data[offset], packet.data[offset + 1]]);
+        if value > 0 {
+            rr.push(value);
+        }
+    }
+
+    let mut encoded = Vec::with_capacity(59);
+    encoded.push(1);
+    encoded.push(0);
+    encoded.extend_from_slice(&unix.to_le_bytes());
+    encoded.push(bpm);
+    encoded.push(u8::try_from(rr.len()).unwrap_or(0));
+    for value in rr.iter().take(MAX_RR) {
+        encoded.extend_from_slice(&value.to_le_bytes());
+    }
+    for _ in rr.len().min(MAX_RR)..MAX_RR {
+        encoded.extend_from_slice(&0_u16.to_le_bytes());
+    }
+    encoded.push(0);
+    encoded.extend_from_slice(&[0; 25]);
+    encoded.push(0);
+    encoded.extend_from_slice(&[0; 12]);
     byte_array(env, &encoded)
 }
 

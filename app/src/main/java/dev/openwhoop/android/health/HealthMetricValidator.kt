@@ -15,7 +15,7 @@ class HealthMetricValidator {
         val heartRateSamples = when {
             includeFallbackHeartRate && worn.isNotEmpty() -> worn
             !includeFallbackHeartRate -> lowMovement.filter {
-                it.source == dev.openwhoop.android.ble.WhoopProtocol.SampleSource.History && it.hasAnyRawVital()
+                it.source == dev.openwhoop.android.ble.WhoopProtocol.SampleSource.History || it.rrIntervalsMillis.isNotEmpty()
             }
             includeFallbackHeartRate -> worn.ifEmpty {
                 sorted.filter(::hasValidHeartRate)

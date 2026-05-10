@@ -128,7 +128,7 @@ class HealthConnectVitalsWriter(private val context: Context) {
         )
         val missingReasons = buildList {
             if (enabledMetrics.heartRate && validated.heartRate.isEmpty()) {
-                add("HR needs low-movement worn history samples; realtime fallback is UI-only")
+                add("HR needs history samples or realtime health-monitor RR samples; plain realtime fallback is UI-only")
             }
             if (enabledMetrics.hrv && validated.hrvRmssd.isEmpty()) {
                 add("HRV needs >=2 RR intervals on low-movement worn history samples")
